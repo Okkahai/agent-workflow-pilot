@@ -1,1 +1,4 @@
 docs/orchestration/graph.md text eol=lf
+harness/skills/** text eol=lf
+.agents/skills/** text eol=lf
+.claude/skills/** text eol=lf
