@@ -186,3 +186,18 @@ def test_output_cannot_overwrite_canonical_graph(tmp_path):
     result = cli(graph, '--output', graph)
     assert result.returncode == 1
     assert graph.read_bytes() == original
+
+
+def test_output_rejects_hardlink_and_cleans_failed_write(tmp_path):
+    graph = tmp_path / 'graph.json'
+    graph.write_bytes(FIXTURE.read_bytes())
+    alias = tmp_path / 'alias.json'
+    try:
+        alias.hardlink_to(graph)
+    except OSError:
+        pytest.skip('hardlinks unavailable')
+    assert cli(graph, '--output', alias).returncode == 1
+    assert graph.read_bytes() == FIXTURE.read_bytes()
+    before = set(tmp_path.iterdir())
+    assert cli(graph, '--output', tmp_path).returncode == 1
+    assert set(tmp_path.iterdir()) == before

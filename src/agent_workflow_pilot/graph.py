@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import sys
 import tempfile
 
@@ -189,6 +190,8 @@ def main(argv=None):
                 with tempfile.NamedTemporaryFile(dir=args.output.parent, delete=False) as stream:
                     temporary = Path(stream.name)
                     stream.write(rendered.encode('utf-8'))
+                if args.output.exists():
+                    os.chmod(temporary, stat.S_IMODE(args.output.stat().st_mode))
                 os.replace(temporary, args.output)
             finally:
                 if temporary is not None:
