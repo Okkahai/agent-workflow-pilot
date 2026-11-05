@@ -133,6 +133,12 @@ def synchronize(repo, *, write=False):
         actual = _safe_tree(root)
         if set(actual) - set(expected):
             raise SkillError('unexpected provider files; reconcile manually')
+        expected_dirs = {str(parent).replace('\\', '/') for name in expected
+                         for parent in Path(name).parents if str(parent) != '.'}
+        if root.exists():
+            for path in root.rglob('*'):
+                if path.is_dir() and path.relative_to(root).as_posix() not in expected_dirs:
+                    raise SkillError('unexpected provider directory; reconcile manually')
         copies.append((root, actual))
         drift.extend(f'{provider}/skills/{name}' for name in expected
                      if actual.get(name) != expected[name])

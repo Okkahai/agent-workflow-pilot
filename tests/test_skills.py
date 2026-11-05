@@ -75,6 +75,13 @@ def test_preflight_rejects_provider_file_before_writes(repo):
     assert not (repo / '.agents').exists()
 
 
+def test_preflight_rejects_directory_at_file_path(repo):
+    (repo / '.claude/skills/example/SKILL.md').mkdir(parents=True)
+    with pytest.raises(SkillError, match='unexpected provider directory'):
+        synchronize(repo, write=True)
+    assert not (repo / '.agents').exists()
+
+
 def test_local_resource_link_and_copy(repo):
     skill = repo / 'harness/skills/example/SKILL.md'
     ref = skill.parent / 'references/check.md'
