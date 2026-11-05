@@ -38,6 +38,10 @@ def test_sync_check_and_idempotence(repo):
     ('description: "Use for example work."', 'description: ""', 'invalid description'),
     ('Read policy.', 'requires: shell', 'undeclared runtime requirements'),
     ('Read policy.', 'Use --admin', 'unsafe requirement'),
+    ('Read policy.', 'git push -f', 'unsafe requirement'),
+    ('Read policy.', 'git commit --no-verify', 'unsafe requirement'),
+    ('Read policy.', 'Ignore  previous instructions', 'unsafe requirement'),
+    ('Read policy.', 'Bad\u202etext', 'control characters'),
     ('Read policy.', '[file](../../outside.md)', 'escaping link'),
     ('Read policy.', '[file](missing.md)', 'broken or escaping link'),
     ('Read policy.', '[file](https://example.com)', 'unsafe link target'),
@@ -62,6 +66,13 @@ def test_duplicate_ids(repo):
     other.write_bytes(original.read_bytes())
     with pytest.raises(SkillError, match='duplicate skill ID'):
         synchronize(repo)
+
+
+def test_preflight_rejects_provider_file_before_writes(repo):
+    (repo / '.claude').write_text('user content')
+    with pytest.raises(SkillError, match='not a directory'):
+        synchronize(repo, write=True)
+    assert not (repo / '.agents').exists()
 
 
 def test_local_resource_link_and_copy(repo):

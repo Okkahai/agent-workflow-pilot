@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import stat
 import sys
+import unicodedata
 
 
 class SkillError(ValueError):
@@ -22,6 +23,8 @@ def _safe_tree(root):
             info = path.lstat()
             if stat.S_ISLNK(info.st_mode) or getattr(info, 'st_file_attributes', 0) & 1024:
                 raise SkillError('symlinks and reparse points are forbidden')
+            if not stat.S_ISDIR(info.st_mode):
+                raise SkillError('provider root or ancestor is not a directory')
     if not root.exists():
         return {}
     files = {}
@@ -92,12 +95,13 @@ def validate_bundle(root):
         if not name.endswith('.md'):
             raise SkillError('only Markdown assets supported in format 1')
         text = raw.decode('utf-8')
-        if any(ord(c) < 32 and c not in '\n\t' for c in text):
+        if any((ord(c) < 32 and c not in '\n\t') or unicodedata.category(c) == 'Cf'
+               or c in '\u0085\u2028\u2029' for c in text):
             raise SkillError('control characters or non-LF endings')
         # Conservative lint, not proof against malicious natural language.
         if re.search(r'(?im)^\s*(?:requires|dependencies|allowed-tools)\s*:', text):
             raise SkillError('undeclared runtime requirements')
-        if re.search(r'(?i)(--admin|--force|ignore previous instructions|disable protections)', text):
+        if re.search(r'(?i)(--admin|--force|--no-verify|--no-gpg-sign|(?<!\w)-f(?!\w)|ignore\s+previous\s+instructions|disable\s+protections)', text):
             raise SkillError('unsafe requirement')
         # Keep this deliberately narrow: inline local links, no remote or
         # reference-style links, HTML or anchors requiring a Markdown parser.
