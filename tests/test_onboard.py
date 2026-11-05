@@ -266,8 +266,10 @@ def test_legacy_upgrade_and_new_collision(repo):
     assert snapshot(repo) == before
 
 
-def test_actual_base_manifest_check_and_upgrade(repo):
-    base = ob.git(ob.ROOT, 'rev-parse', '8d45c91').decode()
+def test_legacy_manifest_check_and_upgrade(repo):
+    # The checked-out commit is available even in CI's shallow clone.
+    # Construct the previous manifest format using its legacy asset mapping.
+    base = PIN
     files = ob.bundle(base, ob.legacy_files())
     files[ob.INVENTORY] = ob.encode({'graph': None, 'observed': {}, 'unknowns': ['legacy snapshot']})
     for name, data in files.items():
