@@ -22,10 +22,10 @@ Source: `orchestrator_capabilities({})` in this session. Parent inherited `claud
 
 | Role | Selection principle | Constraint |
 | --- | --- | --- |
-| Coordinator | Strongest advertised model with highest tolerated effort; judgment, protection reading, merge decision | Alone merges. Not the author of the head it reviews |
-| Implementer | Cheaper advertised model at medium or high effort for bounded work with explicit file ownership | One writer per branch and directory |
+| Coordinator | User-configured preference or a choice supported by measured evidence; exercise judgment on protections and delivery | Alone merges. Not the author of the head it reviews |
+| Implementer | Select a capable advertised model for bounded work with explicit file ownership; treat unmeasured cost and quality comparisons as hypotheses | One writer per branch and directory |
 | Reviewer | A different provider instance or model from the author when advertised; read-only; fresh task per head | Independent of the author, not merely a different prompt. Same-model review is recorded as weaker independence |
-| Mechanical edits | Smallest advertised model | Must have a runnable check |
+| Mechanical edits | Avoid delegation or use a user-preferred capable model | Must have a runnable check |
 
 Raise effort before changing models when a task fails for reasoning depth; change model when it fails for capability or tool use. Record effort with the model ID in every handoff so results are attributable.
 
