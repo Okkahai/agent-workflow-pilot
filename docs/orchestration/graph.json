@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "kind": "planned",
+  "nodes": [
+    {"id": "builder-a", "title": "Build calculator changes", "status": "planned", "depends_on": [], "owns": ["src/agent_workflow_pilot/calculator.py", "tests/test_calculator.py"]},
+    {"id": "builder-b", "title": "Build statistics changes", "status": "planned", "depends_on": [], "owns": ["src/agent_workflow_pilot/statistics.py", "tests/test_statistics.py"]},
+    {"id": "review", "title": "Independent review of exact combined head", "status": "planned", "depends_on": ["builder-a", "builder-b"], "owns": []},
+    {"id": "delivery", "title": "Controller verifies protections and delivers", "status": "planned", "depends_on": ["review"], "owns": []}
+  ]
+}
