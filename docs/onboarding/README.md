@@ -5,11 +5,17 @@ The target needs only a local Git repository with an existing commit; it need no
 use Python, uv, or this package. Nothing is installed globally. Commands do not
 fetch, contact a host, commit, change Git config, enable CI or merge anything.
 
+Choose a reviewed integration commit containing every asset in `mapping()` (older
+milestone pins lack the new entrypoint/templates and fail without writing).
+`FULL_REVIEWED_SHA` below is a placeholder, never a branch or tag. Record the
+installer and asset SHA trust decisions before adoption.
+
 ```powershell
-uv run --locked python -m agent_workflow_pilot.onboard init --target "C:\path\to\target" --pin 95ac90027e7ce57c262fad467d7fbe8d4df9de0e --dry-run
-uv run --locked python -m agent_workflow_pilot.onboard init --target "C:\path\to\target" --pin 95ac90027e7ce57c262fad467d7fbe8d4df9de0e
+uv run --locked python -m agent_workflow_pilot.onboard init --target "C:\path\to\target" --pin FULL_REVIEWED_SHA --dry-run
+uv run --locked python -m agent_workflow_pilot.onboard init --target "C:\path\to\target" --pin FULL_REVIEWED_SHA
 uv run --locked python -m agent_workflow_pilot.onboard check --target "C:\path\to\target"
 ```
+
 
 These are instructions for future authorized adoption, not evidence of adoption.
 This milestone accesses no OpsPilot, MarketOS, Alibi or other real target project;
@@ -27,27 +33,17 @@ are copied. The pilot repository, its worktrees, and targets whose remote contai
 `agent-workflow-pilot` are rejected. A renamed clone without that identity cannot
 be recognized as the pilot: this is a guardrail, not an access sandbox.
 
-After inspection, manually merge this block into the target's existing instructions:
+After installation open `.agent-harness/START.md` in the target. It supplies
+standalone commands, corrected installed paths and links to the reusable adoption
+workflow and editable templates. See [project-adoption.md](project-adoption.md).
+Upstream docs remain reference contracts; their pilot package commands are not
+target commands. Target toolchains and systems are preserved.
 
-```markdown
-Follow .agent-harness/docs/engineering-standard.md and repository-specific rules.
-Read .agent-harness/docs/orchestration/roles.md and context-pack.md.
-Repository facts are recorded in .agent-harness/inventory.json; unknowns stay open.
-Independent current-head review and verified protections gate delivery.
-The controller owns merging; workers return exact head, evidence and limitations.
-```
-
-Copied documentation retains upstream repository conventions and command examples;
-paths such as `docs/plans/` are conventions to adapt, not generated target facts.
-Run validators from the pinned harness checkout (recommended), or explicitly invoke
-`.agent-harness/validators/graph.py`, `handoff.py`, or `gate.py` with Python 3.12.
-No validator is run in the target automatically. No initial graph is created:
-inventory records `graph: null`, because discovery has not established tasks or
-ownership. Only Git root/head and presence of root instructions are observed;
-owners, stack, architecture, build commands, CI/protections, permissions and MCP
-availability remain explicitly unknown. Inventory is a managed snapshot, not a live
-scanner; keep subsequent project facts in a separately maintained repository doc.
-Skill discovery/activation in fresh providers is unverified.
+The generated `.agent-harness/initial-graph.json` is valid under the installed
+schema. It contains one completed inventory-recording node, no project tasks or
+ownership. Inventory records Git root/head and root instruction presence only;
+stack, owners, checks, architecture, permissions and runtime discovery stay unknown.
+Both are managed historical snapshots. Keep ongoing facts/plans in editable copies.
 
 ## Pin and trust boundary
 
@@ -56,8 +52,8 @@ tags, abbreviations and missing objects fail. The manifest records that exact SH
 and SHA-256 of installed bytes. The installer reads allowlisted regular blobs via
 Git, ignoring dirty working-tree assets. Review both the executing installer
 checkout and chosen asset commit. A SHA provides identity, not authenticity, safety
-or authorization. The initial documented asset pin predates this installer; that
-is intentional: the installer distributes universal assets from milestone 3.
+or authorization. Review the pin as an explicit trust decision; no publisher signature or automatic
+provenance verification is supplied.
 Local manifests and rollback data are unauthenticated; do not trust them after
 untrusted edits. `check` also compares asset hashes with the recorded commit.
 No secrets, remote capabilities, effective protections or delivery rights are

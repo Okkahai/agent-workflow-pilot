@@ -53,7 +53,12 @@ def test_lifecycle_and_preservation(repo):
         assert (repo / name).read_bytes() == data
     assert not any('calculator' in p or 'examples' in p or 'workflows' in p for p in snapshot(repo))
     inventory = json.loads((repo / ob.INVENTORY).read_bytes())
-    assert inventory['graph'] is None
+    assert inventory['graph'] == ob.GRAPH
+    from agent_workflow_pilot.graph import load_graph
+    graph = load_graph(repo / ob.GRAPH)
+    assert graph['nodes'] == [{'id': 'record-inventory',
+        'title': 'Record local Git inventory snapshot', 'status': 'complete',
+        'depends_on': [], 'owns': []}]
     installed = snapshot(repo)
     ob.run('rollback', repo, dry_run=True)
     assert snapshot(repo) == installed
@@ -225,3 +230,37 @@ def test_malformed_manifest(repo, raw):
     (repo / ob.STATE).parent.mkdir()
     (repo / ob.STATE).write_text(raw)
     assert ob.main(['check', '--target', str(repo)]) == 1
+
+
+def test_installed_entrypoint_commands(repo):
+    ob.run('init', repo, PIN)
+    result = subprocess.run(['uv', 'run', '--locked', 'python',
+        str(repo / '.agent-harness/validators/graph.py'), str(repo / ob.GRAPH)],
+        capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    for name in ('project-adoption.md', 'workflow.md', 'templates/task.md',
+                 'templates/repository.md', 'templates/review.md', 'templates/handoff.json'):
+        assert (repo / '.agent-harness/docs/onboarding' / name).is_file()
+    assert (repo / ob.START).is_file()
+
+
+def test_legacy_upgrade_and_new_collision(repo):
+    ob.run('init', repo, PIN)
+    state = json.loads((repo / ob.STATE).read_bytes())
+    new = [name for name in state['files'] if name in (ob.START, ob.GRAPH) or
+           name.startswith('.agent-harness/docs/onboarding/') or
+           name.startswith('.agent-harness/docs/orchestration/handoffs/')]
+    for name in new:
+        del state['files'][name]
+        (repo / name).unlink()
+    (repo / ob.STATE).write_bytes(ob.encode(state))
+    (repo / ob.JOURNAL).unlink()
+    before = snapshot(repo)
+    (repo / ob.START).write_text('user collision')
+    with pytest.raises(ValueError, match='collision'):
+        ob.run('upgrade', repo, PIN)
+    (repo / ob.START).unlink()
+    ob.run('upgrade', repo, PIN)
+    assert ob.run('check', repo)['drift'] == []
+    ob.run('rollback', repo)
+    assert snapshot(repo) == before
