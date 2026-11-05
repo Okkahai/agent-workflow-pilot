@@ -1,0 +1,10 @@
+# Evidence report — 2026-11-05
+
+Observed live, read-only via gh:
+- PR1 merge commit 8d71db160b9ac915f672a69ed2430a4ce434387c. Body records independent AI review of df0b5f01446ced6e141d96ac7e7804ad4794d22f, 96 tests and 144 comparisons; these historical executions were not rerun here. Reviews array is empty: no GitHub approval. CI pytest check SUCCESS, run 42070925774.
+- Classic main protection returns HTTP 404. Rulesets list and rulesets/26630870 plus rules/branches/main succeed: active main-pr-and-ci, PR required, zero approving reviews required, strict pytest from integration 15368, deletion/non-fast-forward blocked, no bypass actors, current_user_can_bypass never.
+- git worktree list shows main, this harness branch and focused-calculator in separate directories. This proves checkout separation, not cross-provider delegation fidelity. User-supplied T3 runtime instructions describe delegation/checkout behavior; no delegation was executed here, and provider independence is a design property rather than a cross-provider experiment.
+
+Executed: `uv run --locked pytest tests/test_gate.py -q` initially failed collection with ModuleNotFoundError for the not-yet-created gate. After implementation `uv run --locked pytest -q`: 112 passed. Fifteen policy tests use synthetic evidence: failed/pending CI, stale review/check SHA, actionable findings, missing protections/permissions and bypass all block. One real local Git test creates simultaneous worktrees, proves isolation, rejects stale fast-forward, aborts conflict without losing commits, and reconciles both histories. Existing 96 tests remain passing.
+
+No live failed-check merge attempt, permission revocation, protection mutation or merge was performed. No remote enforcement claim follows from mocked policy tests. Independent current-head review and PR CI are pending parent orchestration. No package APIs or dependencies added; stdlib only. Observation log scan found no entries; no observations logged because this task produced no new skill correction. No other repository changed.

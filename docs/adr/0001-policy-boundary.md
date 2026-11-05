@@ -1,0 +1,3 @@
+# ADR 0001: policy core separate from delivery adapters
+
+Accepted for this pilot. Provider independence requires a small evidence policy rather than model-specific orchestration. Use a stdlib policy function/CLI and repository/task templates. Trusted controllers supply authenticated fresh evidence and perform normal SHA-bound protected merges. Alternative: embed GitHub credential collection and scheduling now; rejected because this task cannot validate an unattended production controller. Consequence: synthetic input can lie; this CLI is not a security boundary. Automatic merge is preserved as controller policy, not implemented as a new daemon. No dependencies, CI or remote protections are changed.

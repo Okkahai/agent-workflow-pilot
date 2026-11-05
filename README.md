@@ -25,3 +25,7 @@ uv run --locked pytest
 ```
 
 CI runs pytest for pushes to main and pull requests targeting main.
+
+## Reusable engineering harness
+
+Start with [the universal standard](docs/engineering-standard.md), [onboarding template](docs/templates/onboarding.md), and [executed evidence](docs/evidence.md). The policy CLI validates trusted evidence; it does not collect credentials or merge PRs.
