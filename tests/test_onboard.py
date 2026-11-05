@@ -264,3 +264,42 @@ def test_legacy_upgrade_and_new_collision(repo):
     assert ob.run('check', repo)['drift'] == []
     ob.run('rollback', repo)
     assert snapshot(repo) == before
+
+
+def test_actual_base_manifest_check_and_upgrade(repo):
+    base = ob.git(ob.ROOT, 'rev-parse', '8d45c91').decode()
+    files = ob.bundle(base, ob.legacy_files())
+    files[ob.INVENTORY] = ob.encode({'graph': None, 'observed': {}, 'unknowns': ['legacy snapshot']})
+    for name, data in files.items():
+        ob.write(repo, name, data)
+    ob.write(repo, ob.STATE, ob.encode({'version': 1, 'pin': base,
+        'files': {name: ob.digest(data) for name, data in files.items()}}))
+    assert ob.run('check', repo)['pin'] == base
+    before = snapshot(repo)
+    ob.run('upgrade', repo, PIN)
+    assert ob.run('check', repo)['pin'] == PIN
+    ob.run('rollback', repo)
+    assert snapshot(repo) == before
+    assert ob.run('check', repo)['pin'] == base
+
+
+def test_cli_disposable_lifecycle(repo):
+    import sys
+    def cli(command, *args):
+        return subprocess.run([sys.executable, '-m', 'agent_workflow_pilot.onboard',
+            command, '--target', str(repo), *args], capture_output=True, text=True)
+    assert cli('init', '--pin', PIN, '--dry-run').returncode == 0
+    assert snapshot(repo) == {}
+    assert cli('init', '--pin', PIN).returncode == 0
+    assert cli('check').returncode == 0
+    assert json.loads(cli('init', '--pin', PIN).stdout)['changed'] == []
+    assert json.loads(cli('upgrade', '--pin', PIN).stdout)['changed'] == []
+    managed = repo / ob.START
+    original = managed.read_bytes()
+    managed.write_text('user edit')
+    failure = cli('check')
+    assert failure.returncode == 1 and 'drift' in failure.stdout
+    managed.write_bytes(original)
+    assert cli('rollback', '--dry-run').returncode == 0
+    assert cli('rollback').returncode == 0
+    assert snapshot(repo) == {}

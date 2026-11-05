@@ -101,13 +101,21 @@ def mapping():
     return files
 
 
-def bundle(pin):
+def legacy_files():
+    return {name for name in mapping() if name != START and
+            not name.startswith('.agent-harness/docs/onboarding/') and
+            not name.startswith('.agent-harness/docs/orchestration/handoffs/')} | {INVENTORY}
+
+
+def bundle(pin, names=None):
     if not re.fullmatch('[0-9a-f]{40}', pin):
         raise ValueError('pin must be a full lowercase committed SHA')
     if git(ROOT, 'rev-parse', '--verify', pin + '^{commit}').decode() != pin:
         raise ValueError('pin is not a commit')
     files = {}
     for dest, source in mapping().items():
+        if names is not None and dest not in names:
+            continue
         mode = git(ROOT, 'ls-tree', pin, '--', source).split(b' ', 1)[0]
         if mode != b'100644':
             raise ValueError('missing or non-regular canonical asset: ' + source)
@@ -142,9 +150,7 @@ def manifest(raw):
             not isinstance(doc['pin'], str) or
             not re.fullmatch('[0-9a-f]{40}', doc['pin']) or
             set(doc['files']) not in (set(mapping()) | {INVENTORY, GRAPH},
-                {name for name in mapping() if name != START and
-                 not name.startswith('.agent-harness/docs/onboarding/') and
-                 not name.startswith('.agent-harness/docs/orchestration/handoffs/')} | {INVENTORY}) or
+                legacy_files()) or
             any(not isinstance(h, str) or not re.fullmatch('[0-9a-f]{64}', h)
                 for h in doc['files'].values())):
         raise ValueError('invalid ownership manifest')
@@ -162,7 +168,7 @@ def run(command, path, pin=None, dry_run=False):
             raise ValueError('no valid rollback snapshot')
         if (not isinstance(journal['before'], dict) or not isinstance(journal['after'], dict) or
                 set(journal['before']) != set(journal['after']) or
-                not set(journal['before']).issubset(allowed) or STATE not in journal['before']):
+                set(journal['before']) not in (allowed, legacy_files() | {STATE})):
             raise ValueError('invalid rollback paths')
         changes = {}
         for name in sorted(journal['before']):
@@ -186,7 +192,7 @@ def run(command, path, pin=None, dry_run=False):
     if command == 'check':
         if not old:
             raise ValueError('not initialized')
-        expected = bundle(old['pin'])
+        expected = bundle(old['pin'], old['files'])
         if any(name not in expected or digest(expected[name]) != value
                for name, value in old['files'].items() if name not in (INVENTORY, GRAPH)):
             raise ValueError('manifest differs from committed source')
