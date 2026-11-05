@@ -21,7 +21,8 @@ def mean(values: Iterable[int | float]) -> int | float:
     """Return the arithmetic mean without mutating the input.
 
     Empty or non-finite input raises ValueError; non-numeric values and
-    booleans raise TypeError. Single-pass iterables are supported.
+    booleans raise TypeError. An unrepresentable fractional result raises
+    OverflowError. Single-pass iterables are supported.
     """
     return _statistics.mean(_validated(values))
 
@@ -30,7 +31,8 @@ def median(values: Iterable[int | float]) -> int | float:
     """Return the middle value, averaging the middle pair for even counts.
 
     Input is not mutated. Empty or non-finite input raises ValueError;
-    non-numeric values and booleans raise TypeError. Iterators are supported.
+    non-numeric values and booleans raise TypeError. An unrepresentable
+    fractional result raises OverflowError. Iterators are supported.
     """
     data = sorted(_validated(values))
     middle = len(data) // 2

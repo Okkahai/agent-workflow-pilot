@@ -33,6 +33,12 @@ def test_median_avoids_overflow_for_large_finite_values():
 
 
 @pytest.mark.parametrize("operation", [mean, median])
+def test_unrepresentable_fractional_result_raises_overflow(operation):
+    with pytest.raises(OverflowError):
+        operation([10**400, 10**400 + 1])
+
+
+@pytest.mark.parametrize("operation", [mean, median])
 def test_rejects_empty_input(operation):
     with pytest.raises(ValueError):
         operation(iter(()))
