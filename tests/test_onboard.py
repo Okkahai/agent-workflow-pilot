@@ -7,7 +7,7 @@ import pytest
 
 from agent_workflow_pilot import onboard as ob
 
-PIN = '95ac90027e7ce57c262fad467d7fbe8d4df9de0e'
+PIN = subprocess.check_output(['git', '-C', str(ob.ROOT), 'rev-parse', 'HEAD'], text=True).strip()
 
 
 @pytest.fixture
