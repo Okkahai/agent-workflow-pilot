@@ -32,4 +32,8 @@ def median(values: Iterable[int | float]) -> int | float:
     Input is not mutated. Empty or non-finite input raises ValueError;
     non-numeric values and booleans raise TypeError. Iterators are supported.
     """
-    return _statistics.median(_validated(values))
+    data = sorted(_validated(values))
+    middle = len(data) // 2
+    if len(data) % 2:
+        return data[middle]
+    return _statistics.mean(data[middle - 1 : middle + 1])

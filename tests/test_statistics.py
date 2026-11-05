@@ -27,6 +27,11 @@ def test_accepts_single_pass_iterables(operation):
     assert operation(value for value in [3, 1, 2]) == 2
 
 
+def test_median_avoids_overflow_for_large_finite_values():
+    assert median([1e308, 1e308]) == 1e308
+    assert median([2**1100, 2**1100 + 2]) == 2**1100 + 1
+
+
 @pytest.mark.parametrize("operation", [mean, median])
 def test_rejects_empty_input(operation):
     with pytest.raises(ValueError):
