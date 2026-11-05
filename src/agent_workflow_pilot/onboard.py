@@ -17,6 +17,7 @@ SKILLS = ('repo-discovery', 'research-first', 'task-planning', 'handoff',
 DOCS = ('engineering-standard.md', 'orchestration/roles.md',
         'orchestration/skills.md', 'orchestration/graph-schema.md',
         'orchestration/handoff.md', 'orchestration/context-pack.md',
+        'orchestration/model-routing.md', 't3-runbook.md',
         'templates/onboarding.md')
 STATE = '.agent-harness/manifest.json'
 JOURNAL = '.agent-harness/rollback.json'
@@ -24,7 +25,7 @@ INVENTORY = '.agent-harness/inventory.json'
 
 
 def git(root, *args):
-    return subprocess.run(['git', '-C', str(root), *args], check=True,
+    return subprocess.run(['git', '--no-replace-objects', '-C', str(root), *args], check=True,
                           capture_output=True).stdout.strip()
 
 
@@ -103,7 +104,7 @@ def bundle(pin):
         mode = git(ROOT, 'ls-tree', pin, '--', source).split(b' ', 1)[0]
         if mode != b'100644':
             raise ValueError('missing or non-regular canonical asset: ' + source)
-        files[dest] = subprocess.run(['git', '-C', str(ROOT), 'show', f'{pin}:{source}'],
+        files[dest] = subprocess.run(['git', '--no-replace-objects', '-C', str(ROOT), 'show', f'{pin}:{source}'],
                                      check=True, capture_output=True).stdout
     return files
 
@@ -185,7 +186,7 @@ def run(command, path, pin=None, dry_run=False):
     else:
         files[INVENTORY] = encode({
             'observed': {'git_root': str(root), 'head': git(root, 'rev-parse', 'HEAD').decode(),
-                         'root_AGENTS_present': safe(root, 'AGENTS.md').is_file()},
+                         'root_AGENTS_present': os.path.lexists(root / 'AGENTS.md')},
             'unknowns': ['owners', 'stack', 'build/test commands', 'architecture',
                          'CI/protections/permissions', 'MCP runtime availability'],
             'graph': None, 'graph_status': 'not inventoried; no nodes inferred'})

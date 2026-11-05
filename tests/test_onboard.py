@@ -23,6 +23,20 @@ def snapshot(repo):
             if p.is_file() and '.git' not in p.relative_to(repo).parts}
 
 
+def test_existing_hardlinked_instructions_are_preserved(repo):
+    original = repo / 'CLAUDE.md'
+    original.write_text('existing instructions')
+    (repo / 'AGENTS.md').hardlink_to(original)
+    before = snapshot(repo)
+    assert ob.run('init', repo, PIN, True)['changed']
+    assert snapshot(repo) == before
+
+
+def test_distribution_includes_routing_and_runbook():
+    assert '.agent-harness/docs/orchestration/model-routing.md' in ob.mapping()
+    assert '.agent-harness/docs/t3-runbook.md' in ob.mapping()
+
+
 def test_lifecycle_and_preservation(repo):
     for name in ('AGENTS.md', '.mcp.json', '.agents/skills/unrelated/SKILL.md'):
         p = repo / name
