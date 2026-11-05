@@ -177,3 +177,12 @@ def test_title_cannot_inject_markdown():
     rendered = render_markdown(graph)
     assert '<script>' not in rendered and '[link]' not in rendered
     assert '&#124;' in rendered
+
+
+def test_output_cannot_overwrite_canonical_graph(tmp_path):
+    graph = tmp_path / 'graph.json'
+    graph.write_bytes(FIXTURE.read_bytes())
+    original = graph.read_bytes()
+    result = cli(graph, '--output', graph)
+    assert result.returncode == 1
+    assert graph.read_bytes() == original

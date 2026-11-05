@@ -1,9 +1,11 @@
 ﻿"""Validate and render a planned graph; never collect live state or schedule work."""
 import argparse
 import json
+import os
 from pathlib import Path
 import re
 import sys
+import tempfile
 
 
 class GraphError(ValueError):
@@ -178,7 +180,19 @@ def main(argv=None):
             if args.check.read_bytes() != rendered.encode('utf-8'):
                 raise GraphError(f'derived Markdown differs: {args.check}')
         elif args.output:
-            args.output.write_bytes(rendered.encode('utf-8'))
+            if args.output.resolve() == args.graph.resolve() or (
+                args.output.exists() and os.path.samefile(args.output, args.graph)
+            ):
+                raise GraphError('output must differ from canonical graph')
+            temporary = None
+            try:
+                with tempfile.NamedTemporaryFile(dir=args.output.parent, delete=False) as stream:
+                    temporary = Path(stream.name)
+                    stream.write(rendered.encode('utf-8'))
+                os.replace(temporary, args.output)
+            finally:
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
         else:
             sys.stdout.buffer.write(rendered.encode('utf-8'))
     except (ValueError, OSError, RecursionError) as error:
