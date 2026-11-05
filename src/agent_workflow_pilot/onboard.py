@@ -18,10 +18,16 @@ DOCS = ('engineering-standard.md', 'orchestration/roles.md',
         'orchestration/skills.md', 'orchestration/graph-schema.md',
         'orchestration/handoff.md', 'orchestration/context-pack.md',
         'orchestration/model-routing.md', 't3-runbook.md',
-        'templates/onboarding.md')
+        'templates/onboarding.md', 'onboarding/project-adoption.md',
+        'onboarding/workflow.md', 'onboarding/templates/repository.md',
+        'onboarding/templates/task.md', 'onboarding/templates/review.md',
+        'onboarding/templates/handoff.json', 'orchestration/handoffs/README.md',
+        'orchestration/handoffs/example.json')
 STATE = '.agent-harness/manifest.json'
 JOURNAL = '.agent-harness/rollback.json'
 INVENTORY = '.agent-harness/inventory.json'
+GRAPH = '.agent-harness/initial-graph.json'
+START = '.agent-harness/START.md'
 
 
 def git(root, *args):
@@ -91,16 +97,25 @@ def mapping():
     for skill in SKILLS:
         for prefix in ('.agent-harness/skills', '.agents/skills', '.claude/skills'):
             files[f'{prefix}/{skill}/SKILL.md'] = f'harness/skills/{skill}/SKILL.md'
+    files[START] = 'harness/distribution/START.md'
     return files
 
 
-def bundle(pin):
+def legacy_files():
+    return {name for name in mapping() if name != START and
+            not name.startswith('.agent-harness/docs/onboarding/') and
+            not name.startswith('.agent-harness/docs/orchestration/handoffs/')} | {INVENTORY}
+
+
+def bundle(pin, names=None):
     if not re.fullmatch('[0-9a-f]{40}', pin):
         raise ValueError('pin must be a full lowercase committed SHA')
     if git(ROOT, 'rev-parse', '--verify', pin + '^{commit}').decode() != pin:
         raise ValueError('pin is not a commit')
     files = {}
     for dest, source in mapping().items():
+        if names is not None and dest not in names:
+            continue
         mode = git(ROOT, 'ls-tree', pin, '--', source).split(b' ', 1)[0]
         if mode != b'100644':
             raise ValueError('missing or non-regular canonical asset: ' + source)
@@ -134,7 +149,8 @@ def manifest(raw):
     if (set(doc) != {'version', 'pin', 'files'} or doc['version'] != 1 or
             not isinstance(doc['pin'], str) or
             not re.fullmatch('[0-9a-f]{40}', doc['pin']) or
-            set(doc['files']) != set(mapping()) | {INVENTORY} or
+            set(doc['files']) not in (set(mapping()) | {INVENTORY, GRAPH},
+                legacy_files()) or
             any(not isinstance(h, str) or not re.fullmatch('[0-9a-f]{64}', h)
                 for h in doc['files'].values())):
         raise ValueError('invalid ownership manifest')
@@ -145,15 +161,17 @@ def run(command, path, pin=None, dry_run=False):
     root = target(path)
     raw = read(root, STATE)
     old = manifest(raw) if raw else None
-    allowed = set(mapping()) | {INVENTORY, STATE}
+    allowed = set(mapping()) | {INVENTORY, GRAPH, STATE}
     if command == 'rollback':
         journal = json.loads(read(root, JOURNAL) or b'null')
         if not isinstance(journal, dict) or set(journal) != {'before', 'after'}:
             raise ValueError('no valid rollback snapshot')
-        if set(journal['before']) != allowed or set(journal['after']) != allowed:
+        if (not isinstance(journal['before'], dict) or not isinstance(journal['after'], dict) or
+                set(journal['before']) != set(journal['after']) or
+                set(journal['before']) not in (allowed, legacy_files() | {STATE})):
             raise ValueError('invalid rollback paths')
         changes = {}
-        for name in sorted(allowed):
+        for name in sorted(journal['before']):
             before = journal['before'][name]
             changes[name] = None if before is None else base64.b64decode(before, validate=True)
             current = read(root, name)
@@ -174,8 +192,9 @@ def run(command, path, pin=None, dry_run=False):
     if command == 'check':
         if not old:
             raise ValueError('not initialized')
-        expected = bundle(old['pin'])
-        if any(digest(data) != old['files'][name] for name, data in expected.items()):
+        expected = bundle(old['pin'], old['files'])
+        if any(name not in expected or digest(expected[name]) != value
+               for name, value in old['files'].items() if name not in (INVENTORY, GRAPH)):
             raise ValueError('manifest differs from committed source')
         return {'operation': command, 'pin': old['pin'], 'drift': []}
     if command == 'upgrade' and not old:
@@ -189,13 +208,17 @@ def run(command, path, pin=None, dry_run=False):
                          'root_AGENTS_present': os.path.lexists(root / 'AGENTS.md')},
             'unknowns': ['owners', 'stack', 'build/test commands', 'architecture',
                          'CI/protections/permissions', 'MCP runtime availability'],
-            'graph': None, 'graph_status': 'not inventoried; no nodes inferred'})
+            'graph': GRAPH, 'graph_status': 'inventory observation only; no project tasks inferred'})
+    files[GRAPH] = (read(root, GRAPH) if old and GRAPH in old['files'] else encode({
+        'version': 1, 'kind': 'planned', 'nodes': [{
+            'id': 'record-inventory', 'title': 'Record local Git inventory snapshot',
+            'status': 'complete', 'depends_on': [], 'owns': []}]}))
     state = encode({'version': 1, 'pin': pin,
                     'files': {k: digest(v) for k, v in files.items()}})
     files[STATE] = state
     before = {name: read(root, name) for name in files}
     for name, value in before.items():
-        if not old and value is not None:
+        if value is not None and (not old or name not in set(old['files']) | {STATE}):
             raise ValueError('unowned collision: ' + name)
     changed = [name for name in files if before[name] != files[name]]
     if old and command == 'init' and old['pin'] != pin:

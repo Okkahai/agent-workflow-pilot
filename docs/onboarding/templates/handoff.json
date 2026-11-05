@@ -1,0 +1,33 @@
+{
+  "schema": "agent-workflow-pilot.handoff/1",
+  "task_id": "example-task",
+  "repo": "Okkahai/agent-workflow-pilot",
+  "branch": "t3/example",
+  "base": "main",
+  "head": "0123456789abcdef0123456789abcdef01234567",
+  "from_role": "implementer",
+  "receiving_role": "reviewer",
+  "summary": "Example only. Added a validator; review the diff at the head below.",
+  "tests": [
+    {
+      "command": "uv run --locked pytest",
+      "result": "pass",
+      "head": "0123456789abcdef0123456789abcdef01234567",
+      "detail": "Example: 80 passed. Re-run it yourself; this is a claim, not proof."
+    }
+  ],
+  "evidence": [
+    {
+      "kind": "pull_request",
+      "ref": "https://github.com/Okkahai/agent-workflow-pilot/pull/0",
+      "head": "0123456789abcdef0123456789abcdef01234567"
+    }
+  ],
+  "provenance": {
+    "author": "implementation worker",
+    "runtime": "example runtime",
+    "created_at": "2026-01-01T00:00:00+00:00",
+    "basis": "self-reported"
+  },
+  "unknowns": ["CI result on this head not yet observed."]
+}
