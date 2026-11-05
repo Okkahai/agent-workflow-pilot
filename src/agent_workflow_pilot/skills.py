@@ -70,6 +70,8 @@ def validate_bundle(root):
             key, sep, value = line.partition(': ')
             if not sep or key in metadata or key not in {'name', 'description'}:
                 raise SkillError('unknown or duplicate metadata; requirements are not supported')
+            if '\\' in value:
+                raise SkillError('metadata escapes are not supported')
             try:
                 metadata[key] = json.loads(value)
             except ValueError as exc:
