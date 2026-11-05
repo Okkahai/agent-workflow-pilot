@@ -201,3 +201,14 @@ def test_output_rejects_hardlink_and_cleans_failed_write(tmp_path):
     before = set(tmp_path.iterdir())
     assert cli(graph, '--output', tmp_path).returncode == 1
     assert set(tmp_path.iterdir()) == before
+
+
+def test_untrusted_dependency_is_escaped_in_error(tmp_path):
+    graph = plan()
+    graph['nodes'][0]['depends_on'] = ['bad\x1b[31m\nfake']
+    path = tmp_path / 'graph.json'
+    path.write_text(json.dumps(graph))
+    result = cli(path)
+    assert result.returncode == 1
+    assert b'\x1b' not in result.stderr
+    assert b'\nfake' not in result.stderr

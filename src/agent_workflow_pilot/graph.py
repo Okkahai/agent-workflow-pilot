@@ -17,7 +17,7 @@ def _object(pairs):
     result = {}
     for key, value in pairs:
         if key in result:
-            raise GraphError(f'duplicate JSON key: {key}')
+            raise GraphError(f'duplicate JSON key: {key!r}')
         result[key] = value
     return result
 
@@ -88,7 +88,7 @@ def validate(graph):
     for ident, node in by_id.items():
         for dep in node['depends_on']:
             if dep not in by_id:
-                raise GraphError(f'{ident}: missing dependency {dep}')
+                raise GraphError(f'{ident}: missing dependency {dep!r}')
             if dep == ident:
                 raise GraphError(f'{ident}: self dependency')
     # Iterative topological traversal avoids recursion limits on long valid chains.
