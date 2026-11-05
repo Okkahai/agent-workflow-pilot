@@ -52,6 +52,8 @@ def test_valid_and_example():
     ('bad repo', lambda d: d.update(repo='not a repo')),
     ('bad timestamp', lambda d: d['provenance'].update(created_at='yesterday')),
     ('naive timestamp', lambda d: d['provenance'].update(created_at='2026-01-01T00:00:00')),
+    ('newline timestamp', lambda d: d['provenance'].update(created_at='2026-01-01\n00:00:00Z')),
+    ('bidi timestamp', lambda d: d['provenance'].update(created_at='2026-01-01\u202e00:00:00Z')),
     ('non-self-reported basis', lambda d: d['provenance'].update(basis='verified')),
     ('unknowns not list', lambda d: d.update(unknowns='none')),
     ('wrong type summary', lambda d: d.update(summary=['x'])),

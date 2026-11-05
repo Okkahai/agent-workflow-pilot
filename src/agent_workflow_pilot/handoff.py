@@ -154,6 +154,7 @@ def problems_for(doc, current_head=None, role=None):
         if prov.get('basis') != 'self-reported':
             problems.append('provenance.basis: must be "self-reported"')
         stamp = prov.get('created_at')
+        _text(stamp, 'provenance.created_at', problems)
         try:
             if not isinstance(stamp, str) or datetime.fromisoformat(stamp).utcoffset() is None:
                 raise ValueError
