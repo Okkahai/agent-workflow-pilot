@@ -58,7 +58,7 @@ def reconcile(plan, root, binding, observations, scope, native, head):
         raise ValueError('native evidence reference required')
     if type(native['children_terminal']) is not bool:
         raise ValueError('native terminal boolean required')
-    if not isinstance(head, str) or not p.SHA.fullmatch(head):
+    if not isinstance(head, str) or not (p.re.fullmatch(r'[0-9a-f]{64}', head) if task['kind'] == 'artifact' and len(head) == 64 else p.SHA.fullmatch(head)):
         raise ValueError('current full head required')
     evidence = observations['tasks'].get(task['id'])
     if evidence is not None and evidence['head'] != head:
