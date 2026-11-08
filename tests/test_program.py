@@ -1,0 +1,80 @@
+from copy import deepcopy
+from pathlib import Path
+import pytest
+from agent_workflow_pilot.controller import program as p, checkpoint as c
+
+ROOT=Path('docs/program')
+
+def plan(): return p.load(ROOT/'roadmap.json')
+
+def test_real_selection_and_order():
+    a=plan(); result=p.select(a,ROOT)
+    assert result['task']=='pc1'
+    a['tasks'].reverse()
+    assert p.select(a,ROOT)==result
+    assert result['tasks']['pr14']['state']=='blocked'
+    assert not result['merge_authorized']
+
+@pytest.mark.parametrize('change', ['duplicate','missing','self','cycle','ownership','spec','authorization'])
+def test_invalid_plan(change):
+    a=plan(); t=a['tasks'][0]
+    if change=='duplicate': a['tasks'].append(deepcopy(t))
+    if change=='missing': t['depends_on']=['absent']
+    if change=='self': t['depends_on']=[t['id']]
+    if change=='cycle': t['depends_on']=['m1-gap']
+    if change=='ownership': t['owns']=['docs/program/']
+    if change=='spec': t['spec']='tasks/missing.md'
+    if change=='authorization': t['approved']='yes'
+    with pytest.raises(ValueError): p.select(a,ROOT)
+
+def evidence():
+    return dict(state='delivered',head='a'*40,verified_head='a'*40,ref='controller:verified',children_terminal=True,draft=False,merged=True,merge_commit='b'*40,target_tip='c'*40,ancestor_verified=True)
+
+def test_ancestry_not_tip_equality():
+    assert p.completion(plan()['tasks'][0],evidence())
+
+@pytest.mark.parametrize('field,value',[('draft',True),('merged',False),('ancestor_verified',False),('children_terminal',False),('verified_head','d'*40),('head','short'),('state','complete')])
+def test_completion_rejects(field,value):
+    e=evidence(); e[field]=value
+    with pytest.raises(ValueError): p.completion(plan()['tasks'][0],e)
+
+def test_artifact():
+    t=dict(plan()['tasks'][0],kind='artifact')
+    e={k:v for k,v in evidence().items() if k in {'state','head','verified_head','ref','children_terminal'}}
+    e.update(accepted=True,independent=True)
+    assert p.completion(t,e)
+    e['independent']=False
+    with pytest.raises(ValueError): p.completion(t,e)
+
+def test_resume_immutable_and_stale(tmp_path):
+    a=plan(); delivery=tmp_path/'delivery.json'; binding=tmp_path/'program.json'
+    s=c.new('pc1',['approved M1 acceptance'])
+    s=c.apply(s,'intent','dispatch',client_request_id='original-intent',completed_dependencies=[])
+    c.save(delivery,s)
+    r=p.record(binding,a,ROOT,'pc1',delivery)
+    assert r['tasks']['pc1']['state']=='blocked'
+    assert p.record(binding,a,ROOT,'pc1',delivery)==r
+    s=c.apply(s,'native','started',refs={'task':'existing-task','thread':'existing-thread'})
+    c.save(delivery,s)
+    assert p.select(a,ROOT,active=p.load(binding))['tasks']['pc1']['state']=='running'
+    assert c.load(delivery)['intent']=='original-intent'
+    with pytest.raises(ValueError): p.record(binding,a,ROOT,'pr14',delivery)
+    a['revision']='changed'
+    with pytest.raises(ValueError): p.select(a,ROOT,active=p.load(binding))
+
+def test_stale_observations():
+    with pytest.raises(ValueError): p.select(plan(),ROOT,{'plan_hash':'old','tasks':{}})
+
+def test_dependencies_and_authorization():
+    a=plan(); gap=next(t for t in a['tasks'] if t['id']=='m1-gap')
+    gap.update(approved=True,decision=True,priority=-1)
+    assert p.select(a,ROOT)['task']=='pc1'
+    obs=dict(plan_hash=p.fingerprint(a,ROOT),tasks={'m1-core':evidence()})
+    assert p.select(a,ROOT,obs)['task']=='m1-gap'
+    gap['decision']=False
+    assert p.select(a,ROOT)['task']=='pc1'
+
+def test_cli(capsys):
+    assert p.main(['next'])==0
+    assert 'pc1' in capsys.readouterr().out
+    assert p.main(['resume'])==1
