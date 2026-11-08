@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": "pc3-approved-2026-11-08",
+  "revision": "m1-gap-approved-2026-11-08",
   "tasks": [
     {
       "id": "m1-core",
@@ -67,13 +67,17 @@
       "title": "Rich planning and context contract",
       "milestone": "M1",
       "kind": "code",
-      "approved": false,
-      "decision": false,
-      "priority": 100,
+      "approved": true,
+      "decision": true,
+      "priority": 0,
       "depends_on": [
         "m1-core"
       ],
-      "owns": [],
+      "owns": [
+        "src/agent_workflow_pilot/task_context.py",
+        "tests/test_task_context.py",
+        "docs/orchestration/task-context/"
+      ],
       "spec": "tasks/m1-gap.md"
     },
     {
