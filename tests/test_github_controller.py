@@ -14,13 +14,17 @@ def client(checks=None, statuses=None, last=None):
         calls.append(path)
         if '/pulls/' in path:
             return (last or pr()) if sum('/pulls/' in x for x in calls) == 2 else pr()
+        if path.endswith('/check-suites'):
+            return [{'total_count': 0, 'check_suites': []}]
         if path.endswith('/check-runs'):
-            return checks if checks is not None else [{'check_runs': []}]
-        return statuses if statuses is not None else [{'statuses': []}]
+            if checks is None:
+                return [{'total_count': 0, 'check_runs': []}]
+            return checks
+        return statuses if statuses is not None else [{'sha': SHA, 'total_count': 0, 'statuses': []}]
     return get
 
 def test_valid_metadata_is_blocked_without_review_and_protections():
-    result = collect('owner/repo', 7, client([{'check_runs': [{'name': 'test', 'status': 'completed', 'conclusion': 'success', 'head_sha': SHA}]}]))
+    result = collect('owner/repo', 7, client([{'total_count': 1, 'check_runs': [{'id': 1, 'name': 'test', 'status': 'completed', 'conclusion': 'success', 'head_sha': SHA}]}]))
     assert result['pr']['head_sha'] == SHA
     assert result['pr']['base_sha'] == BASE
     assert result['observed_ci'] == 'success'
@@ -30,7 +34,7 @@ def test_valid_metadata_is_blocked_without_review_and_protections():
 
 @pytest.mark.parametrize('status,conclusion,expected', [('completed', 'failure', 'failure'), ('in_progress', None, 'pending')])
 def test_unsuccessful_ci(status, conclusion, expected):
-    checks = [{'check_runs': [{'name': 'test', 'status': status, 'conclusion': conclusion, 'head_sha': SHA}]}]
+    checks = [{'total_count': 1, 'check_runs': [{'id': 1, 'name': 'test', 'status': status, 'conclusion': conclusion, 'head_sha': SHA}]}]
     assert collect('owner/repo', 7, client(checks))['observed_ci'] == expected
 
 def test_missing_ci():
@@ -54,3 +58,77 @@ def test_invalid_input(repo, number):
 def test_incomplete_metadata():
     result = collect('owner/repo', 7, lambda path: {})
     assert not result['eligible'] and result['errors']
+
+
+def successful_run(ident=1):
+    return {'id': ident, 'name': 'test', 'status': 'completed', 'conclusion': 'success', 'head_sha': SHA}
+
+
+def test_truncated_check_runs_are_not_success():
+    result = collect('owner/repo', 7, client([{'total_count': 2, 'check_runs': [successful_run()]}]))
+    assert result['observed_ci'] == 'unknown' and result['errors'] and not result['eligible']
+
+
+@pytest.mark.parametrize('count', [None, -1, True, '1'])
+def test_bad_check_count(count):
+    result = collect('owner/repo', 7, client([{'total_count': count, 'check_runs': [successful_run()]}]))
+    assert result['observed_ci'] == 'unknown' and result['errors']
+
+
+def test_paginated_check_runs():
+    pages = [{'total_count': 2, 'check_runs': [successful_run(1)]},
+             {'total_count': 2, 'check_runs': [successful_run(2)]}]
+    result = collect('owner/repo', 7, client(pages))
+    assert result['observed_ci'] == 'success' and len(result['checks']) == 2
+
+
+def test_inconsistent_check_counts():
+    pages = [{'total_count': 2, 'check_runs': [successful_run(1)]},
+             {'total_count': 3, 'check_runs': [successful_run(2)]}]
+    result = collect('owner/repo', 7, client(pages))
+    assert result['observed_ci'] == 'unknown' and result['errors']
+
+
+def test_truncated_check_page():
+    pages = [{'total_count': 3, 'check_runs': [successful_run(1)]},
+             {'total_count': 3, 'check_runs': [successful_run(2)]}]
+    result = collect('owner/repo', 7, client(pages))
+    assert result['observed_ci'] == 'unknown' and result['errors']
+
+
+@pytest.mark.parametrize('sha', [None, 'bad', 'b' * 40])
+def test_status_sha_must_match(sha):
+    statuses = [{'sha': sha, 'total_count': 1, 'statuses': [{'context': 'ci', 'state': 'success'}]}]
+    result = collect('owner/repo', 7, client(statuses=statuses))
+    assert result['observed_ci'] == 'unknown' and result['errors']
+
+
+def test_status_sha_checked_on_every_page():
+    statuses = [{'sha': SHA, 'total_count': 2, 'statuses': [{'context': 'a', 'state': 'success'}]},
+                {'sha': BASE, 'total_count': 2, 'statuses': [{'context': 'b', 'state': 'success'}]}]
+    result = collect('owner/repo', 7, client(statuses=statuses))
+    assert result['observed_ci'] == 'unknown' and result['errors']
+
+
+def test_suite_limit_blocks_observation():
+    base = client([{'total_count': 1, 'check_runs': [successful_run()]}])
+    def api(path):
+        if path.endswith('/check-suites'):
+            return [{'total_count': 1001, 'check_suites': []}]
+        return base(path)
+    result = collect('owner/repo', 7, api)
+    assert result['observed_ci'] == 'unknown' and result['errors'] and not result['eligible']
+
+
+def test_matching_status_shas_on_multiple_pages():
+    statuses = [{'sha': SHA, 'total_count': 2, 'statuses': [{'context': 'a', 'state': 'success'}]},
+                {'sha': SHA, 'total_count': 2, 'statuses': [{'context': 'b', 'state': 'success'}]}]
+    result = collect('owner/repo', 7, client(statuses=statuses))
+    assert result['observed_ci'] == 'success' and not result['eligible']
+
+
+def test_duplicate_check_run_ids_rejected():
+    pages = [{'total_count': 2, 'check_runs': [successful_run()]},
+             {'total_count': 2, 'check_runs': [successful_run()]}]
+    result = collect('owner/repo', 7, client(pages))
+    assert result['observed_ci'] == 'unknown' and result['errors']

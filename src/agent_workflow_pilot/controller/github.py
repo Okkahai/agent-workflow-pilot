@@ -43,19 +43,43 @@ def _pr(value, number):
             'head_sha': head['sha'], 'base_sha': base['sha'], 'base_branch': base['ref']}
 
 
-def _checks(pages, key, sha):
+def _validate_pages(pages, key, sha=None, limit=None):
     if not isinstance(pages, list) or not pages:
-        raise ValueError('Incomplete check response')
-    items = []
+        raise ValueError(f'Missing {key} pages; recollect evidence')
+    total = None
+    values = []
     for page in pages:
         if not isinstance(page, dict) or not isinstance(page.get(key), list):
-            raise ValueError('Malformed check response')
-        for item in page[key]:
+            raise ValueError(f'Malformed {key} response; recollect evidence')
+        count = page.get('total_count')
+        if type(count) is not int or count < 0 or (total is not None and total != count):
+            raise ValueError(f'Invalid or inconsistent {key} total_count; recollect evidence')
+        if limit is not None and count > limit:
+            raise ValueError(f'{key} exceeds GitHub check-suite limit; observation incomplete')
+        if sha is not None and page.get('sha') != sha:
+            raise ValueError('Commit status SHA missing or mismatched; recollect evidence')
+        total = count
+        values.extend(page[key])
+    if len(values) != total or (len(pages) > 1 and any(not page[key] for page in pages)):
+        raise ValueError(f'Incomplete or contradictory {key} pages; recollect evidence')
+    return values
+
+
+def _checks(pages, key, sha):
+    raw = _validate_pages(pages, key, sha if key == 'statuses' else None)
+    items = []
+    seen = set()
+    for page in [raw]:
+        for item in page:
             if not isinstance(item, dict):
                 raise ValueError('Malformed check item')
             if key == 'check_runs':
                 if item.get('head_sha') != sha or not isinstance(item.get('name'), str):
                     raise ValueError('Malformed or stale check run')
+                ident = item.get('id')
+                if type(ident) is not int or ident < 1 or ident in seen:
+                    raise ValueError('Missing or duplicate check run ID; recollect evidence')
+                seen.add(ident)
                 status, conclusion = item.get('status'), item.get('conclusion')
                 if status == 'completed':
                     state = 'success' if conclusion == 'success' else 'failure'
@@ -88,6 +112,10 @@ def collect(repository, number, api=github_api):
         first = _pr(api(f'{prefix}/pulls/{number}'), number)
         report['pr'] = first
         sha = first['head_sha']
+        suites = _validate_pages(api(f'{prefix}/commits/{sha}/check-suites'), 'check_suites', limit=1000)
+        suite_ids = [suite.get('id') if isinstance(suite, dict) else None for suite in suites]
+        if any(type(ident) is not int or ident < 1 for ident in suite_ids) or len(set(suite_ids)) != len(suite_ids):
+            raise ValueError('Malformed or duplicate check suite IDs; recollect evidence')
         checks = _checks(api(f'{prefix}/commits/{sha}/check-runs'), 'check_runs', sha)
         checks += _checks(api(f'{prefix}/commits/{sha}/status'), 'statuses', sha)
         last = _pr(api(f'{prefix}/pulls/{number}'), number)
