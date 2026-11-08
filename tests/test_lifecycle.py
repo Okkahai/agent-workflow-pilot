@@ -103,3 +103,7 @@ def test_reevaluation_selects_best_eligible_in_scope(tmp_path):
     obs['tasks']['pc2']=evidence()
     result=l.reconcile(a,ROOT,binding,obs,['pc2','inside'],dict(**refs,status='completed',children_terminal=True,ref='record'),'a'*40)
     assert result['action']=='continue' and result['task']=='inside'
+    prepared=l.prepare(a,ROOT,tmp_path/'inside-binding.json',tmp_path/'inside-delivery.json',
+                       obs,['pc2','inside'],result['task'],['approved successor'],'inside-intent')
+    assert not prepared['dispatch']
+    assert c.load(tmp_path/'inside-delivery.json')['task_key']=='inside'

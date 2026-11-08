@@ -8,7 +8,7 @@ from agent_workflow_pilot.controller import checkpoint as c, program as p
 
 def bound(plan, root, binding, observations, scope):
     active = p.load(binding)
-    p.select(plan, root, observations, active)
+    p.select(plan, root, observations, active, scope=scope)
     if active['task'] not in scope:
         raise ValueError('task outside approved execution scope')
     task = next(t for t in plan['tasks'] if t['id'] == active['task'])
@@ -17,7 +17,7 @@ def bound(plan, root, binding, observations, scope):
 
 def prepare(plan, root, binding, delivery, observations, scope, task, acceptance, intent):
     """Persist intent and binding BEFORE caller invokes its native tool. Never dispatch."""
-    selected = p.select(plan, root, observations)
+    selected = p.select(plan, root, observations, scope=scope)
     if selected['task'] != task or task not in scope:
         raise ValueError('task not eligible in approved scope')
     spec = next(t for t in plan['tasks'] if t['id'] == task)
@@ -32,7 +32,7 @@ def prepare(plan, root, binding, delivery, observations, scope, task, acceptance
         if Path(binding).exists():
             raise ValueError('active binding already exists')
         c.save(delivery, state)
-    p.record(binding, plan, root, task, delivery, observations)
+    p.record(binding, plan, root, task, delivery, observations, scope=scope)
     return dict(action='reconcile_native_intent', intent=intent, dispatch=False)
 
 
@@ -72,10 +72,8 @@ def reconcile(plan, root, binding, observations, scope, native, head):
     delivered = p.completion(task, evidence)
     if delivered:
         # Retain immutable binding on disk as an archive; reevaluation logically retires it.
-        result = p.select(plan, root, observations)
-        eligible = [t for t in plan['tasks'] if t['id'] in scope
-                    and result['tasks'][t['id']]['state']=='eligible']
-        candidate = min(eligible, key=lambda t:(t['priority'],t['id']))['id'] if eligible else None
+        result = p.select(plan, root, observations, scope=scope)
+        candidate = result['task']
         return dict(action='continue' if candidate else 'stop', task=candidate,
                     slot='retired', merge_authorized=False)
     return dict(action='awaiting_authorization' if evidence['state']=='report_ready' else 'blocked',
