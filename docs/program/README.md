@@ -3,7 +3,7 @@
 Source: ../plans/program-coordinator-design.md (full original M1–5 inventory);
 ../plans/program-coordinator-m1.md is the approved authority. Core rows are
 historical merged references, not fresh authoritative completion assertions.
-Only PC1 is approved. PR14 is separate and unmerged. Gap rows retain explicit
+PC1 and dependent PC2 are approved. PR14 is separate and unmerged. Gap rows retain explicit
 limitations and require later scope/ownership approval before execution.
 
 ## Coordinator live demonstration (PowerShell, repository root)
@@ -73,3 +73,66 @@ Unit tests exercise fixtures and local checkpoint files. Real native dispatch,
 CI, independent Ubuntu review, controller observation collection, crash recovery
 and watch wake behavior are not proved by those fixtures. The controller must
 save actual CLI JSON outputs during its live demonstration.
+
+## PC2 same-delivery lifecycle contract
+
+PC1 and PC2 are approved; PC2 depends on freshly observed delivered PC1.
+All gap rows and PR14 remain unapproved. The approved PC2 plan is
+`../plans/program-coordinator-pc2.md`. No readiness state is bundled here.
+
+The single trusted Coordinator owns all calls and local files. The new
+`agent_workflow_pilot.controller.lifecycle` module accepts the existing program
+binding and delivery checkpoint: do not prepare or dispatch PC2 again.
+`reconcile`, `reevaluate`, and `resume` are aliases that re-read the same files
+and require fresh native and host observations on every invocation.
+
+Save controller-collected arguments as `C:/Temp/pc2-terminal.json`:
+
+```json
+{
+  "scope": ["pc2"],
+  "head": "<actual current 40-character PR head>",
+  "native": {
+    "task": "<existing native task ID>",
+    "thread": "<existing native thread ID>",
+    "status": "completed",
+    "children_terminal": true,
+    "ref": "<controller-read native terminal record reference>"
+  }
+}
+```
+
+Use actual IDs from the existing delivery, and a freshly collected observation
+file with the current plan hash, delivered PC1 and report_ready PC2. Replace
+placeholders; they are deliberately not valid evidence. A draft PC2 observation
+has draft=true, merged=false, merge_commit=null, ancestor_verified=false.
+
+```powershell
+uv run --locked python -m agent_workflow_pilot.controller.lifecycle resume --binding C:/Temp/program.json --observations C:/Temp/pc-observations.json --input C:/Temp/pc2-terminal.json > C:/Temp/pc2-proof.json
+```
+
+An unmerged report returns action=awaiting_authorization, slot=held and
+merge_authorized=false. Failed/interrupted/unknown native status, live children,
+missing host evidence or exhausted blocked correction budget hold the slot.
+Stale plan/head, conflicting identities or missing scope reject without writes.
+Only verified delivered observations logically retire the binding; the immutable
+file remains as its archive. Reevaluation returns another eligible task only if
+it is in the supplied approved scope. It never dispatches or merges. Do not
+call the old selector without the active binding to bypass this boundary.
+
+Python API uses `(plan, root, binding, observations, scope)` plus:
+
+- `prepare(..., delivery, task, acceptance, intent)` persists intent and records
+  binding before a future native call; returns dispatch=false even on replay.
+  Caller reconciles that intent with native records before deciding to invoke
+  the tool. Acceptance must cite the approved task contract.
+- `attach(..., refs)` attaches task/thread IDs with immutable replay receipts.
+- `reconcile(..., native, head)` (CLI resume/reevaluate aliases) evaluates fresh
+  trusted-controller evidence without resetting delivery retries or IDs.
+
+For prepare/attach CLI, `--input` contains the corresponding named arguments
+including scope. These are local helpers, not an evidence authenticator or
+remote exactly-once mechanism. Never feed worker-authored claims as verified
+observations. Single writer required. Crash after intent persistence requires
+native reconciliation, never blind retry; remote crash behavior is untested.
+CI and independent review remain separate controller responsibilities.

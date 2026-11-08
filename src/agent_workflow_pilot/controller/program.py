@@ -76,7 +76,7 @@ def completion(task, evidence):
     return complete and evidence['state']=='delivered'
 
 
-def select(plan, root, observations=None, active=None):
+def select(plan, root, observations=None, active=None, scope=None):
     digest = fingerprint(plan, root)
     if observations is None:
         observations = {'plan_hash': digest, 'tasks': {}}
@@ -84,6 +84,9 @@ def select(plan, root, observations=None, active=None):
     if observations['plan_hash'] != digest:
         raise ValueError('stale observation plan')
     tasks = {t['id']:t for t in plan['tasks']}
+    if scope is not None and (not isinstance(scope, list) or
+                              any(not isinstance(i, str) or i not in tasks for i in scope)):
+        raise ValueError('invalid execution scope')
     if not isinstance(observations['tasks'], dict) or set(observations['tasks']) - tasks.keys():
         raise ValueError('unknown observation task')
     done = {i:completion(t, observations['tasks'].get(i)) for i,t in tasks.items()}
@@ -107,26 +110,29 @@ def select(plan, root, observations=None, active=None):
             raise ValueError('stale checkpoint plan/task')
         if not tasks[active['task']]['approved'] or not tasks[active['task']]['decision']:
             raise ValueError('active task lacks authorization/decision')
+        if scope is not None and active['task'] not in scope:
+            raise ValueError('active task outside execution scope')
         delivery = checkpoint.load(active['delivery'])
         if delivery['task_key'] != active['task']:
             raise ValueError('delivery identity mismatch')
         selected = active['task']
         view[selected] = dict(state='blocked' if delivery['lifecycle'] in ('dispatching','blocked') else 'running', explanation=['resume existing delivery; reconcile native records; never redispatch'])
     else:
-        eligible = [t for t in tasks.values() if view[t['id']]['state']=='eligible']
+        eligible = [t for t in tasks.values() if view[t['id']]['state']=='eligible'
+                    and (scope is None or t['id'] in scope)]
         if eligible: selected = min(eligible, key=lambda t:(t['priority'],t['id']))['id']
     return dict(plan_hash=digest, task=selected, tasks=view, explanation='resume' if active else 'selected' if selected else 'no authorized eligible task', merge_authorized=False)
 
 
-def record(path, plan, root, task, delivery, observations=None):
+def record(path, plan, root, task, delivery, observations=None, scope=None):
     """Bind an existing persisted delivery; exclusive creation makes replay immutable."""
     value = dict(plan_hash=fingerprint(plan, root), task=task, delivery=str(Path(delivery).resolve()))
     if Path(path).exists():
         if load(path) != value: raise ValueError('immutable delivery binding differs')
-        return select(plan, root, observations, value)
-    result = select(plan, root, observations)
+        return select(plan, root, observations, value, scope=scope)
+    result = select(plan, root, observations, scope=scope)
     if result['task'] != task: raise ValueError('task is not selected/authorized')
-    result = select(plan, root, observations, value)
+    result = select(plan, root, observations, value, scope=scope)
     with open(path, 'x', encoding='utf-8') as stream:
         json.dump(value, stream, sort_keys=True)
     return result
