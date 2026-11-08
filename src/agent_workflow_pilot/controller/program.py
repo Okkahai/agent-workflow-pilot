@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 import sys
 
@@ -57,7 +58,7 @@ def completion(task, evidence):
     if evidence['state'] not in ('blocked', 'report_ready', 'delivered'):
         raise ValueError('invalid observation state')
     for field in {'head', 'verified_head'} | (set() if task['kind'] == 'artifact' else {'target_tip'}):
-        if not isinstance(evidence[field], str) or not SHA.fullmatch(evidence[field]):
+        if not isinstance(evidence[field], str) or not (re.fullmatch(r'[0-9a-f]{64}', evidence[field]) if task['kind'] == 'artifact' and len(evidence[field]) == 64 else SHA.fullmatch(evidence[field])):
             raise ValueError('full SHA required')
     if task['kind'] == 'code':
         merge = evidence['merge_commit']

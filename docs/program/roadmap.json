@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": "pc2-approved-2026-11-08",
+  "revision": "pc3-approved-2026-11-08",
   "tasks": [
     {
       "id": "m1-core",
@@ -177,6 +177,52 @@
         "docs/program/"
       ],
       "spec": "tasks/pc2.md"
+    },
+    {
+      "id": "pc3",
+      "title": "pc3",
+      "milestone": "M1",
+      "kind": "code",
+      "approved": true,
+      "decision": true,
+      "priority": 0,
+      "depends_on": [
+        "pc2"
+      ],
+      "owns": [
+        "src/agent_workflow_pilot/controller/",
+        "tests/test_program.py",
+        "docs/program/"
+      ],
+      "spec": "tasks/pc3.md"
+    },
+    {
+      "id": "pc3-a",
+      "title": "pc3-a",
+      "milestone": "M1",
+      "kind": "artifact",
+      "approved": true,
+      "decision": true,
+      "priority": 1,
+      "depends_on": [
+        "pc2"
+      ],
+      "owns": [],
+      "spec": "tasks/pc3-a.md"
+    },
+    {
+      "id": "pc3-b",
+      "title": "pc3-b",
+      "milestone": "M1",
+      "kind": "artifact",
+      "approved": true,
+      "decision": true,
+      "priority": 2,
+      "depends_on": [
+        "pc3-a"
+      ],
+      "owns": [],
+      "spec": "tasks/pc3-b.md"
     }
   ]
 }
