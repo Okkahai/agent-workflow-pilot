@@ -1,0 +1,164 @@
+{
+  "version": 1,
+  "revision": "pc1-approved-2026-11-08",
+  "tasks": [
+    {
+      "id": "m1-core",
+      "title": "Graph and handoff validators",
+      "milestone": "M1",
+      "kind": "code",
+      "approved": false,
+      "decision": false,
+      "priority": 100,
+      "depends_on": [],
+      "owns": [],
+      "spec": "tasks/m1-core.md"
+    },
+    {
+      "id": "m2-core",
+      "title": "Canonical skills and roles",
+      "milestone": "M2",
+      "kind": "code",
+      "approved": false,
+      "decision": false,
+      "priority": 100,
+      "depends_on": [],
+      "owns": [],
+      "spec": "tasks/m2-core.md"
+    },
+    {
+      "id": "m3-core",
+      "title": "MCP inventory and routing policy",
+      "milestone": "M3",
+      "kind": "code",
+      "approved": false,
+      "decision": false,
+      "priority": 100,
+      "depends_on": [],
+      "owns": [],
+      "spec": "tasks/m3-core.md"
+    },
+    {
+      "id": "m4-core",
+      "title": "Portable onboarding",
+      "milestone": "M4",
+      "kind": "code",
+      "approved": false,
+      "decision": false,
+      "priority": 100,
+      "depends_on": [],
+      "owns": [],
+      "spec": "tasks/m4-core.md"
+    },
+    {
+      "id": "m5-core",
+      "title": "Integration evidence and delivery checkpoint",
+      "milestone": "M5",
+      "kind": "code",
+      "approved": false,
+      "decision": false,
+      "priority": 100,
+      "depends_on": [],
+      "owns": [],
+      "spec": "tasks/m5-core.md"
+    },
+    {
+      "id": "m1-gap",
+      "title": "Rich planning and context contract",
+      "milestone": "M1",
+      "kind": "code",
+      "approved": false,
+      "decision": false,
+      "priority": 100,
+      "depends_on": [
+        "m1-core"
+      ],
+      "owns": [],
+      "spec": "tasks/m1-gap.md"
+    },
+    {
+      "id": "m2-gap",
+      "title": "Fresh Codex runtime skill invocation",
+      "milestone": "M2",
+      "kind": "code",
+      "approved": false,
+      "decision": false,
+      "priority": 100,
+      "depends_on": [
+        "m2-core"
+      ],
+      "owns": [],
+      "spec": "tasks/m2-gap.md"
+    },
+    {
+      "id": "m3-gap",
+      "title": "Optional MCP and model comparison",
+      "milestone": "M3",
+      "kind": "code",
+      "approved": false,
+      "decision": false,
+      "priority": 100,
+      "depends_on": [
+        "m3-core"
+      ],
+      "owns": [],
+      "spec": "tasks/m3-gap.md"
+    },
+    {
+      "id": "m4-gap",
+      "title": "Real target adoption and publisher trust",
+      "milestone": "M4",
+      "kind": "code",
+      "approved": false,
+      "decision": false,
+      "priority": 100,
+      "depends_on": [
+        "m4-core"
+      ],
+      "owns": [],
+      "spec": "tasks/m4-gap.md"
+    },
+    {
+      "id": "m5-gap",
+      "title": "Remote recovery and readiness coverage",
+      "milestone": "M5",
+      "kind": "code",
+      "approved": false,
+      "decision": false,
+      "priority": 100,
+      "depends_on": [
+        "m5-core"
+      ],
+      "owns": [],
+      "spec": "tasks/m5-gap.md"
+    },
+    {
+      "id": "pr14",
+      "title": "Pending integration candidate",
+      "milestone": "M5",
+      "kind": "code",
+      "approved": false,
+      "decision": false,
+      "priority": 100,
+      "depends_on": [],
+      "owns": [],
+      "spec": "tasks/pr14.md"
+    },
+    {
+      "id": "pc1",
+      "title": "Program selection and recovery",
+      "milestone": "M1",
+      "kind": "code",
+      "approved": true,
+      "decision": true,
+      "priority": 0,
+      "depends_on": [],
+      "owns": [
+        "src/agent_workflow_pilot/controller/program.py",
+        "tests/test_program.py",
+        "docs/program/"
+      ],
+      "spec": "tasks/pc1.md"
+    }
+  ]
+}
