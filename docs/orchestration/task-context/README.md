@@ -29,6 +29,12 @@ Windows aliases or escaping filesystem redirects are followed. Context has 1..20
 unique entries. The spec may also appear in context. Text arrays have 1..20 entries
 of 1..1000 characters. Total envelope input is at most 64 KiB, strict JSON.
 
+Envelope, plan, context and specification sources must be regular files and are
+read with a 64 KiB limit, including unrelated task specs used in fingerprinting.
+Redirects to special files are rejected before open. Valid-input fingerprints
+retain existing byte semantics. This is a single trusted-writer boundary, not
+protection against concurrent filesystem replacement races.
+
 ## Build and reload
 
 Use `reference(root, path)` for source hashes and

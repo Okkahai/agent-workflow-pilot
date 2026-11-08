@@ -39,13 +39,14 @@ def validate(plan, root):
     return plan
 
 
-def fingerprint(plan, root):
+def fingerprint(plan, root, read_spec=None):
     validate(plan, root)
     canonical = dict(plan, tasks=sorted(plan['tasks'], key=lambda t:t['id']))
     canonical['tasks'] = [dict(t, depends_on=sorted(t['depends_on']), owns=sorted(t['owns'])) for t in canonical['tasks']]
     payload = json.dumps(canonical, sort_keys=True).encode()
     for t in canonical['tasks']:
-        payload += (Path(root) / t['spec']).read_bytes()
+        path = Path(root) / t['spec']
+        payload += path.read_bytes() if read_spec is None else read_spec(path)
     return hashlib.sha256(payload).hexdigest()
 
 

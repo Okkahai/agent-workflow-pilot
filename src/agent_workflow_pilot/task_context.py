@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import stat
 from pathlib import Path
 import sys
 
@@ -20,9 +21,20 @@ def canonical(doc):
     return json.dumps(doc, sort_keys=True, separators=(',', ':'), ensure_ascii=True).encode()
 
 
+def bounded_source(path):
+    """Reject special files before open; one trusted writer, no race sandbox."""
+    path = Path(path)
+    if not stat.S_ISREG(path.stat().st_mode):
+        raise ValueError('source must be a regular file')
+    with path.open('rb') as stream:
+        content = stream.read(handoff.MAX_BYTES + 1)
+    if len(content) > handoff.MAX_BYTES:
+        raise ValueError('reference exceeds size limit')
+    return content
+
+
 def read(path):
-    with Path(path).open(encoding='utf-8') as stream:
-        return parse(stream.read(handoff.MAX_BYTES + 1))
+    return parse(bounded_source(path).decode('utf-8'))
 
 
 def reference(root, path):
@@ -34,10 +46,7 @@ def reference(root, path):
     target = (root / path).resolve()
     if not target.is_relative_to(root):
         raise ValueError('escaping reference')
-    with target.open('rb') as stream:
-        content = stream.read(handoff.MAX_BYTES + 1)
-    if len(content) > handoff.MAX_BYTES:
-        raise ValueError('reference exceeds size limit')
+    content = bounded_source(target)
     return dict(path=path, sha256=hashlib.sha256(content).hexdigest())
 
 
@@ -80,7 +89,7 @@ def reconstruct(doc, root, plan_path, *, current_head, task_id, repo):
     if not plan_path.is_relative_to(root):
         raise ValueError('plan outside root')
     plan = read(plan_path)
-    digest = program.fingerprint(plan, plan_path.parent)
+    digest = program.fingerprint(plan, plan_path.parent, read_spec=bounded_source)
     if doc['plan_hash'] != digest:
         raise ValueError('stale plan fingerprint')
     task = next((t for t in plan['tasks'] if t['id'] == task_id), None)

@@ -135,3 +135,53 @@ def test_escaping_symlink(tmp_path):
         pytest.skip('symlink capability unavailable')
     with pytest.raises(ValueError, match='escaping'):
         tc.reference(root, 'redirect')
+
+
+def test_special_reference_rejected_before_open(tmp_path, monkeypatch):
+    import stat
+    from types import SimpleNamespace
+    path = tmp_path / 'fifo'
+    path.write_text('stand-in for FIFO metadata')
+    monkeypatch.setattr(Path, 'stat', lambda self, **kw: SimpleNamespace(st_mode=stat.S_IFIFO))
+    def forbidden_open(*args, **kwargs):
+        raise AssertionError('special-file open attempted')
+    monkeypatch.setattr(Path, 'open', forbidden_open)
+    with pytest.raises(ValueError, match='regular file'):
+        tc.reference(tmp_path, 'fifo')
+
+
+@pytest.mark.parametrize('spec_name', ['m1-gap.md', 'm2-gap.md'])
+def test_oversized_specs_bounded_before_fingerprint(tmp_path, monkeypatch, spec_name):
+    import shutil
+    shutil.copytree(ROOT / 'docs/program', tmp_path / 'docs/program')
+    doc = record()
+    (tmp_path / 'docs/program/tasks' / spec_name).write_bytes(b'x' * (65536 + 1))
+    def forbidden_read_bytes(*args, **kwargs):
+        raise AssertionError('unbounded specification read attempted')
+    monkeypatch.setattr(Path, 'read_bytes', forbidden_read_bytes)
+    with pytest.raises(ValueError, match='size limit'):
+        tc.reconstruct(doc, tmp_path, tmp_path / 'docs/program/roadmap.json',
+                       current_head=HEAD, task_id='m1-gap', repo=doc['repo'])
+
+
+@pytest.mark.parametrize('redirect', [False, True])
+def test_real_fifo_prompt_rejection(tmp_path, redirect):
+    import os
+    if not hasattr(os, 'mkfifo'):
+        pytest.skip('POSIX FIFO unavailable')
+    os.mkfifo(tmp_path / 'fifo')
+    name = 'fifo'
+    if redirect:
+        (tmp_path / 'redirect').symlink_to(tmp_path / 'fifo')
+        name = 'redirect'
+    run = subprocess.run([sys.executable, '-c',
+                          'from agent_workflow_pilot.task_context import reference; '
+                          'import sys; reference(sys.argv[1], sys.argv[2])',
+                          str(tmp_path), name], capture_output=True, text=True, timeout=3)
+    assert run.returncode != 0 and 'regular file' in run.stderr
+
+
+def test_bounded_fingerprint_preserves_valid_identity():
+    plan = program.load(ROOT / 'docs/program/roadmap.json')
+    assert program.fingerprint(plan, ROOT / 'docs/program') == program.fingerprint(
+        plan, ROOT / 'docs/program', read_spec=tc.bounded_source)
