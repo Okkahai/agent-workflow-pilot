@@ -104,8 +104,8 @@ def test_status_sha_must_match(sha):
 
 
 def test_status_sha_checked_on_every_page():
-    statuses = [{'sha': SHA, 'total_count': 2, 'statuses': [{'context': 'a', 'state': 'success'}]},
-                {'sha': BASE, 'total_count': 2, 'statuses': [{'context': 'b', 'state': 'success'}]}]
+    statuses = [{'sha': SHA, 'total_count': 2, 'statuses': [{'id': 1, 'context': 'a', 'state': 'success'}]},
+                {'sha': BASE, 'total_count': 2, 'statuses': [{'id': 2, 'context': 'b', 'state': 'success'}]}]
     result = collect('owner/repo', 7, client(statuses=statuses))
     assert result['observed_ci'] == 'unknown' and result['errors']
 
@@ -121,8 +121,8 @@ def test_suite_limit_blocks_observation():
 
 
 def test_matching_status_shas_on_multiple_pages():
-    statuses = [{'sha': SHA, 'total_count': 2, 'statuses': [{'context': 'a', 'state': 'success'}]},
-                {'sha': SHA, 'total_count': 2, 'statuses': [{'context': 'b', 'state': 'success'}]}]
+    statuses = [{'sha': SHA, 'total_count': 2, 'statuses': [{'id': 1, 'context': 'a', 'state': 'success'}]},
+                {'sha': SHA, 'total_count': 2, 'statuses': [{'id': 2, 'context': 'b', 'state': 'success'}]}]
     result = collect('owner/repo', 7, client(statuses=statuses))
     assert result['observed_ci'] == 'success' and not result['eligible']
 
@@ -132,3 +132,48 @@ def test_duplicate_check_run_ids_rejected():
              {'total_count': 2, 'check_runs': [successful_run()]}]
     result = collect('owner/repo', 7, client(pages))
     assert result['observed_ci'] == 'unknown' and result['errors']
+
+
+def status_record(ident=1, context='ci', state='success'):
+    return {'id': ident, 'context': context, 'state': state}
+
+
+def status_pages(*records):
+    return [{'sha': SHA, 'total_count': len(records), 'statuses': [record]} for record in records]
+
+
+def test_duplicate_status_id_across_pages_blocks():
+    result = collect('owner/repo', 7, client(statuses=status_pages(status_record(), status_record())))
+    assert result['observed_ci'] == 'unknown' and not result['eligible']
+    assert any('status' in error.lower() and 'id' in error.lower() for error in result['errors'])
+
+
+def test_duplicate_status_id_with_contradictory_state_blocks():
+    result = collect('owner/repo', 7, client(statuses=status_pages(status_record(), status_record(state='failure'))))
+    assert result['observed_ci'] == 'unknown' and result['errors']
+
+
+@pytest.mark.parametrize('ident', [None, 0, -1, True, '12', 1.2])
+def test_invalid_status_identity_blocks(ident):
+    result = collect('owner/repo', 7, client(statuses=status_pages(status_record(ident))))
+    assert result['observed_ci'] == 'unknown' and result['errors'] and not result['eligible']
+
+
+def test_distinct_status_ids_same_context_are_not_duplicates():
+    result = collect('owner/repo', 7, client(statuses=status_pages(status_record(1), status_record(2))))
+    assert result['observed_ci'] == 'success' and not result['errors'] and not result['eligible']
+
+
+def test_distinct_status_updates_same_context_are_conservative():
+    result = collect('owner/repo', 7, client(statuses=status_pages(status_record(1), status_record(2, state='failure'))))
+    assert result['observed_ci'] == 'failure' and not result['errors']
+
+
+def test_malformed_status_record_blocks():
+    result = collect('owner/repo', 7, client(statuses=status_pages({'id': 1, 'context': 'ci', 'state': 'unknown'})))
+    assert result['observed_ci'] == 'unknown' and result['errors']
+
+
+def test_absent_status_id_blocks():
+    result = collect('owner/repo', 7, client(statuses=status_pages({'context': 'ci', 'state': 'success'})))
+    assert result['observed_ci'] == 'unknown' and result['errors'] and not result['eligible']

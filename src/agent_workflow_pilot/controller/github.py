@@ -89,6 +89,10 @@ def _checks(pages, key, sha):
                     raise ValueError('Unknown check status')
                 items.append({'name': item['name'], 'state': state, 'source': 'check_run'})
             else:
+                ident = item.get('id')
+                if type(ident) is not int or ident < 1 or ident in seen:
+                    raise ValueError('Missing, invalid or duplicate commit status ID; recollect evidence')
+                seen.add(ident)
                 state = item.get('state')
                 if state not in ('success', 'failure', 'error', 'pending') or not isinstance(item.get('context'), str):
                     raise ValueError('Malformed commit status')
