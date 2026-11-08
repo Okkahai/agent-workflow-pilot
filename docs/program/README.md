@@ -1,6 +1,6 @@
 # Real Program Coordinator roadmap
 
-Source: ../plans/program-coordinator-design.md (full original M1–5 inventory);
+Source: ../plans/program-coordinator-design.md (full original M1â€“5 inventory);
 ../plans/program-coordinator-m1.md is the approved authority. Core rows are
 historical merged references, not fresh authoritative completion assertions.
 Only PC1 is approved. PR14 is separate and unmerged. Gap rows retain explicit
@@ -28,7 +28,7 @@ Omit unknown tasks. Code OBSERVATION fields (all required): state
 draft, merged, merge_commit, target_tip, ancestor_verified. SHA fields require
 40 lowercase hexadecimal characters. Booleans must be JSON booleans. `ref`
 is a controller-verified native evidence reference. head must equal verified_head.
-A delivered code observation requires non-draft merged implementation, terminal
+For never-merged blocked/report_ready observations, merge_commit is null and merged/ancestor_verified are false. Only omitted observations default to empty; malformed empty input rejects. A delivered code observation requires non-draft merged implementation, terminal
 children and authoritative verification that merge_commit is an ancestor of
 that observed target_tip. These two commits need not equal. Recollect after a
 force-push or new target observation; this helper cannot detect host changes.
