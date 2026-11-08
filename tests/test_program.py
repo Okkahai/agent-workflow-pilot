@@ -1,5 +1,6 @@
 from copy import deepcopy
 from pathlib import Path
+import json
 import pytest
 from agent_workflow_pilot.controller import program as p, checkpoint as c
 
@@ -78,3 +79,27 @@ def test_cli(capsys):
     assert p.main(['next'])==0
     assert 'pc1' in capsys.readouterr().out
     assert p.main(['resume'])==1
+
+
+@pytest.mark.parametrize('raw', [{}, [], False, '', 0])
+def test_malformed_empty_observations_rejected(raw, tmp_path):
+    with pytest.raises(ValueError):
+        p.select(plan(), ROOT, raw)
+    path = tmp_path / 'observations.json'
+    path.write_text(json.dumps(raw), encoding='utf-8')
+    assert p.main(['next', '--observations', str(path)]) == 1
+
+
+def test_truthful_unmerged_observation_does_not_block_independent_task():
+    a = plan()
+    e = evidence()
+    e.update(state='report_ready', draft=True, merged=False,
+             merge_commit=None, ancestor_verified=False)
+    obs = dict(plan_hash=p.fingerprint(a, ROOT), tasks={'pr14': e})
+    result = p.select(a, ROOT, obs)
+    assert result['task'] == 'pc1'
+    assert result['tasks']['pr14']['state'] == 'report_ready'
+    assert not p.completion(next(t for t in a['tasks'] if t['id']=='pr14'), e)
+    e['state'] = 'delivered'
+    with pytest.raises(ValueError):
+        p.select(a, ROOT, obs)

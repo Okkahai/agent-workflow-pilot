@@ -56,9 +56,15 @@ def completion(task, evidence):
     graph._fields(evidence, common | extra, 'observation')
     if evidence['state'] not in ('blocked', 'report_ready', 'delivered'):
         raise ValueError('invalid observation state')
-    for field in {'head', 'verified_head'} | (set() if task['kind'] == 'artifact' else {'merge_commit','target_tip'}):
+    for field in {'head', 'verified_head'} | (set() if task['kind'] == 'artifact' else {'target_tip'}):
         if not isinstance(evidence[field], str) or not SHA.fullmatch(evidence[field]):
             raise ValueError('full SHA required')
+    if task['kind'] == 'code':
+        merge = evidence['merge_commit']
+        if merge is not None and (not isinstance(merge, str) or not SHA.fullmatch(merge)):
+            raise ValueError('full merge SHA or null required')
+        if merge is None and (evidence['merged'] or evidence['ancestor_verified'] or evidence['state']=='delivered'):
+            raise ValueError('merge SHA required for merged/delivered evidence')
     if evidence['head'] != evidence['verified_head'] or not isinstance(evidence['ref'], str) or not evidence['ref'].strip():
         raise ValueError('stale evidence or missing reference')
     booleans = {'children_terminal'} | ({'draft','merged','ancestor_verified'} if task['kind'] == 'code' else {'accepted','independent'})
@@ -72,7 +78,8 @@ def completion(task, evidence):
 
 def select(plan, root, observations=None, active=None):
     digest = fingerprint(plan, root)
-    observations = observations or {'plan_hash': digest, 'tasks': {}}
+    if observations is None:
+        observations = {'plan_hash': digest, 'tasks': {}}
     graph._fields(observations, ('plan_hash','tasks'), 'observations')
     if observations['plan_hash'] != digest:
         raise ValueError('stale observation plan')
