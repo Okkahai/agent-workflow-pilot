@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": "pc1-approved-2026-11-08",
+  "revision": "pc2-approved-2026-11-08",
   "tasks": [
     {
       "id": "m1-core",
@@ -159,6 +159,24 @@
         "docs/program/"
       ],
       "spec": "tasks/pc1.md"
+    },
+    {
+      "id": "pc2",
+      "title": "Autonomous roadmap-to-delivery lifecycle",
+      "milestone": "M1",
+      "kind": "code",
+      "approved": true,
+      "decision": true,
+      "priority": 0,
+      "depends_on": [
+        "pc1"
+      ],
+      "owns": [
+        "src/agent_workflow_pilot/controller/program.py",
+        "tests/test_program.py",
+        "docs/program/"
+      ],
+      "spec": "tasks/pc2.md"
     }
   ]
 }
