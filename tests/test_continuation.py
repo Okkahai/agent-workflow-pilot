@@ -127,3 +127,27 @@ def test_missing_decision(tmp_path):
     with pytest.raises(ValueError):
         x.advance(a, ROOT, observations=obs, **args)
     assert not (tmp_path/'b.json').exists()
+
+
+def test_three_task_chain_rejects_initial_retired_intent(tmp_path):
+    a,obs,args=setup(tmp_path)
+    template=next(t for t in a['tasks'] if t['id']=='pc3-b')
+    a['tasks'].append(dict(template,id='pc3-c',depends_on=['pc3-b']))
+    args['scope'].append('pc3-c')
+    obs['plan_hash']=p.fingerprint(a,ROOT)
+    from pathlib import Path
+    binding=p.load(args['binding']); binding['plan_hash']=obs['plan_hash']
+    Path(args['binding']).write_text(json.dumps(binding))
+    result=x.advance(a,ROOT,observations=obs,**args)
+    refs=dict(task='native-b',thread='thread-b')
+    l.attach(a,ROOT,result['binding'],obs,args['scope'],refs)
+    obs['tasks']['pc3-b']=artifact('e')
+    onward=dict(args,binding=result['binding'],event='b-to-c',head='e'*64,
+                native=dict(**refs,status='completed',children_terminal=True,ref='b-record'),
+                successor=dict(binding=str(tmp_path/'c.json'),delivery=str(tmp_path/'c-delivery.json'),
+                               task='pc3-c',acceptance=['third'],intent='a-intent'))
+    with pytest.raises(ValueError,match='distinct intent'):
+        x.advance(a,ROOT,observations=obs,**onward)
+    assert not (tmp_path/'c.json').exists()
+    onward['successor']['intent']='c-intent'
+    assert x.advance(a,ROOT,observations=obs,**onward)['dispatch']

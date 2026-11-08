@@ -72,6 +72,7 @@ def advance(plan, root, journal, binding, observations, scope, event,
         current = current_binding
         used_intents = {l.c.load(current['delivery'])['intent']}
         used_intents.update(v['result']['intent'] for v in state['events'].values())
+        used_intents.update(v['retired_intent'] for v in state['events'].values())
         if successor['intent'] in used_intents:
             raise ValueError('successor requires distinct intent')
         if len({next_binding, delivery, binding, current['delivery'], str(Path(journal).resolve())}) != 5:
@@ -92,7 +93,8 @@ def advance(plan, root, journal, binding, observations, scope, event,
                   intent=successor['intent'] if successor else None, replay=False)
     state.pop('pending', None)
     state['active'] = next_binding
-    state['events'][event] = dict(request=receipt, result=result, binding=binding)
+    state['events'][event] = dict(request=receipt, result=result, binding=binding,
+                                 retired_intent=l.c.load(current_binding['delivery'])['intent'])
     _save(journal, state)
     return result
 
