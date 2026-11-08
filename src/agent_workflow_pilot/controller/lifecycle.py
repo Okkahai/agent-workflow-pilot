@@ -49,6 +49,9 @@ def reconcile(plan, root, binding, observations, scope, native, head):
     """Read fresh native and host evidence, never worker assertions. No merge authority."""
     active, task, state = bound(plan, root, binding, observations, scope)
     p.graph._fields(native, ('task', 'thread', 'status', 'children_terminal', 'ref'), 'native')
+    if any(not isinstance(value, str) or not value.strip()
+           for k in ('task', 'thread') for value in (native[k], state['refs'].get(k))):
+        raise ValueError('nonempty persisted and supplied native identity required')
     if any(native[k] != state['refs'].get(k) for k in ('task', 'thread')):
         raise ValueError('native identity mismatch')
     if not isinstance(native['ref'], str) or not native['ref'].strip():
@@ -70,9 +73,9 @@ def reconcile(plan, root, binding, observations, scope, native, head):
     if delivered:
         # Retain immutable binding on disk as an archive; reevaluation logically retires it.
         result = p.select(plan, root, observations)
-        candidate = result['task']
-        if candidate not in scope:
-            candidate = None
+        eligible = [t for t in plan['tasks'] if t['id'] in scope
+                    and result['tasks'][t['id']]['state']=='eligible']
+        candidate = min(eligible, key=lambda t:(t['priority'],t['id']))['id'] if eligible else None
         return dict(action='continue' if candidate else 'stop', task=candidate,
                     slot='retired', merge_authorized=False)
     return dict(action='awaiting_authorization' if evidence['state']=='report_ready' else 'blocked',

@@ -75,3 +75,31 @@ def test_prepare_replay_budget(tmp_path):
     c.save(delivery,state)
     kw['observations']['tasks']['pc2']=evidence()
     assert l.reconcile(*args,**kw,native=native,head='a'*40)['action']=='blocked'
+
+
+def test_unattached_intent_cannot_reconcile_terminal(tmp_path):
+    a=plan()
+    obs=dict(plan_hash=p.fingerprint(a,ROOT),tasks={'pc1':evidence()})
+    binding,delivery=tmp_path/'binding.json',tmp_path/'delivery.json'
+    l.prepare(a,ROOT,binding,delivery,obs,['pc2'],'pc2',['approved PC2'],'intent')
+    obs['tasks']['pc2']=evidence()
+    native=dict(task=None,thread=None,status='completed',children_terminal=True,ref='record')
+    with pytest.raises(ValueError,match='native identity'):
+        l.reconcile(a,ROOT,binding,obs,['pc2'],native,'a'*40)
+    assert c.load(delivery)['lifecycle']=='dispatching'
+
+
+def test_reevaluation_selects_best_eligible_in_scope(tmp_path):
+    a=plan()
+    template=next(t for t in a['tasks'] if t['id']=='pc2')
+    for ident,priority in [('outside',-2),('inside',-1)]:
+        a['tasks'].append(dict(deepcopy(template),id=ident,title=ident,priority=priority,
+                               depends_on=['pc2'],owns=[]))
+    obs=dict(plan_hash=p.fingerprint(a,ROOT),tasks={'pc1':evidence()})
+    binding,delivery=tmp_path/'binding.json',tmp_path/'delivery.json'
+    l.prepare(a,ROOT,binding,delivery,obs,['pc2','inside'],'pc2',['approved'],'intent')
+    refs=dict(task='task',thread='thread')
+    l.attach(a,ROOT,binding,obs,['pc2','inside'],refs)
+    obs['tasks']['pc2']=evidence()
+    result=l.reconcile(a,ROOT,binding,obs,['pc2','inside'],dict(**refs,status='completed',children_terminal=True,ref='record'),'a'*40)
+    assert result['action']=='continue' and result['task']=='inside'
