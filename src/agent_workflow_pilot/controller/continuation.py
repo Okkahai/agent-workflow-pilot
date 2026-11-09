@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
-from agent_workflow_pilot.controller import program as p, lifecycle as l
+from agent_workflow_pilot.controller import identity, program as p, lifecycle as l
 
 
 def _save(path, value):
@@ -22,7 +22,7 @@ def _save(path, value):
 
 
 def advance(plan, root, journal, binding, observations, scope, event,
-            native, head, successor=None):
+            native, head, successor=None, project=None):
     """Retire current binding and prepare successor. Replay never grants dispatch.
 
     successor: {binding, delivery, task, acceptance, intent}, or null at stop.
@@ -33,6 +33,7 @@ def advance(plan, root, journal, binding, observations, scope, event,
     if not isinstance(event, str) or not event.strip():
         raise ValueError('event required')
     binding = str(Path(binding).resolve())
+    identity.assert_project(binding, project)  # before any project-bound state is read
     current_binding = p.load(binding)
     if str(Path(journal).resolve()) in (binding, current_binding['delivery']):
         raise ValueError('journal must be separate from binding/delivery')
@@ -49,13 +50,13 @@ def advance(plan, root, journal, binding, observations, scope, event,
         old = state['events'][event]
         if old['request'] != receipt:
             raise ValueError('conflicting replay')
-        checked = l.reconcile(plan, root, binding, observations, scope, native, head)
+        checked = l.reconcile(plan, root, binding, observations, scope, native, head, project)
         if checked['slot'] != 'retired':
             return dict(checked, dispatch=False)
         return dict(old['result'], dispatch=False, replay=True)
     if state['active'] != binding:
         raise ValueError('binding is not the active serial slot')
-    result = l.reconcile(plan, root, binding, observations, scope, native, head)
+    result = l.reconcile(plan, root, binding, observations, scope, native, head, project)
     if result['slot'] != 'retired':
         return dict(result, dispatch=False)
     recovering = 'pending' in state
@@ -104,10 +105,18 @@ def main(argv=None):
     parser.add_argument('--plan', default='docs/program/roadmap.json')
     parser.add_argument('--observations', required=True)
     parser.add_argument('--input', required=True)
+    identity.add_arguments(parser)
     a = parser.parse_args(argv)
     try:
-        result = advance(p.load(a.plan), Path(a.plan).parent,
-                         observations=p.load(a.observations), **p.load(a.input))
+        plan, args = p.load(a.plan), p.load(a.input)
+        expect, proof = identity.enter(a.mode, a.expect, plan, a.plan, args.get('binding'))
+        if expect is not None:
+            args['project'] = proof
+            if args.get('successor'):
+                identity.check_task(expect, plan, a.plan, args['successor']['task'])
+        result = advance(plan, Path(a.plan).parent, observations=p.load(a.observations), **args)
+        if expect is not None and result.get('binding'):
+            identity.bind(expect, plan, a.plan, result['binding'])
         print(json.dumps(result, sort_keys=True))
         return 0
     except (ValueError, OSError, TypeError, KeyError) as error:
