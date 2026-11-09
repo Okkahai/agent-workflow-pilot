@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "project": "Okkahai/agent-workflow-pilot",
+  "register": "Routing delivery accepted nonblocking follow-ups",
+  "recorded_on": "2026-11-09",
+  "source_pr": "https://github.com/Okkahai/agent-workflow-pilot/pull/20",
+  "reviewed_head": "86fefa42d3f3b40f225e6456dcf6b66b274c8a0a",
+  "evidence": "docs/readiness/dynamic-routing/review-claude-86fefa4-terminal.json",
+  "relationship": "Permanent per-project supplement to docs/readiness/routing-gap-register.md and portability-handoff.md; registered separately from PR20 implementation to preserve exact-head reviews",
+  "authorization": "User authorized PR20 delivery and permanent gap reconciliation; remediation or a new implementation milestone is not authorized by this ledger",
+  "entries": [
+    {
+      "id": "ROUTE-P3-01",
+      "severity": "P3",
+      "status": "open_nonblocking_accepted_for_pr20",
+      "source": "routing.py:758-790 at reviewed head",
+      "gap": "Review validation does not reject one native review task relabelled under two providers",
+      "evidence": "Fresh independent Claude review note1; actual PR20 final native reviewer task IDs independently verified distinct",
+      "remediation": "Reject duplicate native review task identity across all normalized review entries; add same-ID cross-provider negative regression",
+      "trigger": "Before expanding automated mixed-provider review consumption or accepting externally imported reviewer records",
+      "owner": "Coordinator for next separately authorized routing-hardening task"
+    },
+    {
+      "id": "ROUTE-P3-02",
+      "severity": "P3",
+      "status": "open_nonblocking_accepted_for_pr20",
+      "source": "routing.py:459-544 at reviewed head",
+      "gap": "Persisted sidecar validation does not fully rederive route_match or require native identity for real terminal outcomes against manual tampering",
+      "evidence": "Fresh independent Claude review note2; actual PR20 sidecar route/returned equality and terminal native IDs independently rechecked",
+      "remediation": "Derive or verify returned-route equality and require native task/thread for complete/failed/cancelled terminal outcomes; add tampering regressions",
+      "trigger": "Before imported/editable state acceptance or broadening beyond a single trusted local writer",
+      "owner": "Coordinator for next separately authorized routing-hardening task"
+    },
+    {
+      "id": "DOC-P3-03",
+      "severity": "P3",
+      "status": "open_nonblocking_accepted_for_pr20",
+      "source": "docs/orchestration/model-routing.md:14 at reviewed head",
+      "gap": "Shared table row describes planning/architecture switching as automatic even though code returns a candidate requiring caller choice",
+      "evidence": "Fresh independent Claude review note3; routing.md and decide implementation correctly distinguish implementation-only automatic switching",
+      "remediation": "Split planning/architecture caller-choice row from standard/complex automatic implementation-switch row; check documentation against actual policy behavior",
+      "trigger": "Next authorized routing documentation maintenance or universal contract migration, before using that table as an operational instruction",
+      "owner": "Coordinator documentation owner"
+    },
+    {
+      "id": "RECOVERY-P3-04",
+      "severity": "P3",
+      "status": "open_nonblocking_accepted_for_pr20",
+      "source": "routing.py refresh at reviewed head",
+      "gap": "Empty-attempt records cannot refresh to a changed head and require deliberate reinitialization",
+      "evidence": "Fresh independent Claude review note4; demonstrated run used terminal attempts and did not exercise empty-record refresh",
+      "remediation": "Document safe predispatch reinitialization and preservation rules; only add empty-record refresh support if a bounded use case requires it",
+      "trigger": "Before supporting interrupted recovery with no recorded execution attempt",
+      "owner": "Coordinator recovery-contract owner"
+    }
+  ]
+}

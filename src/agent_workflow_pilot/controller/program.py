@@ -8,7 +8,7 @@ import sys
 
 from agent_workflow_pilot import graph
 from agent_workflow_pilot.handoff import parse, SHA
-from agent_workflow_pilot.controller import checkpoint
+from agent_workflow_pilot.controller import checkpoint, identity
 
 
 def load(path):
@@ -148,16 +148,21 @@ def main(argv=None):
     p.add_argument('--checkpoint')
     p.add_argument('--task')
     p.add_argument('--delivery')
+    identity.add_arguments(p)
     a = p.parse_args(argv)
     try:
         plan = load(a.plan); root = Path(a.plan).parent
+        expect, proof = identity.enter(a.mode, a.expect, plan, a.plan, a.checkpoint,
+                                       a.task if a.command=='record' and a.checkpoint else None)
         obs = load(a.observations) if a.observations else None
         if a.command=='record':
             if not all((a.checkpoint,a.task,a.delivery)): raise ValueError('record requires checkpoint/task/delivery')
             result = record(a.checkpoint,plan,root,a.task,a.delivery,obs)
+            if expect is not None: identity.bind(expect,plan,a.plan,a.checkpoint)
         else:
             if a.command=='resume' and not a.checkpoint: raise ValueError('resume requires checkpoint')
             result = select(plan,root,obs,load(a.checkpoint) if a.checkpoint else None)
+            if expect is not None and result['task']: identity.check_task(expect,plan,a.plan,result['task'])
         print(json.dumps(result,sort_keys=True,indent=2))
         return 0
     except (ValueError,OSError,TypeError,KeyError) as error:

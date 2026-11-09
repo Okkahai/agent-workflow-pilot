@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": "dynamic-routing-approved-2026-11-09",
+  "revision": "a1-approved-2026-11-09",
   "tasks": [
     {
       "id": "m1-core",
@@ -251,6 +251,25 @@
         "docs/readiness/routing-gap-register.md"
       ],
       "spec": "tasks/dynamic-routing.md"
+    },
+    {
+      "id": "a1",
+      "title": "Universal project identity and approval binding",
+      "milestone": "M1",
+      "kind": "code",
+      "approved": true,
+      "decision": true,
+      "priority": 0,
+      "depends_on": [
+        "dynamic-routing"
+      ],
+      "owns": [
+        "src/agent_workflow_pilot/controller/",
+        "tests/test_identity.py",
+        "docs/contract/",
+        "docs/plans/universal-modernization/"
+      ],
+      "spec": "tasks/a1.md"
     }
   ]
 }
