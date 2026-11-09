@@ -378,7 +378,8 @@ def test_fresh_process_validation_is_deterministic(tmp_path):
     assert json.loads(outs[0].stdout)['authorizes'] is False
 
 
-def test_continuation_replay_no_duplicate_dispatch_in_project_mode(tmp_path):
+@pytest.mark.parametrize('successor_approval', ['valid', 'missing', 'revoked'])
+def test_continuation_replay_no_duplicate_dispatch_in_project_mode(tmp_path, successor_approval):
     root = world(tmp_path)
     plan, base = p.load(planpath(root)), planpath(root).parent
     exp = expectation(root)
@@ -406,12 +407,49 @@ def test_continuation_replay_no_duplicate_dispatch_in_project_mode(tmp_path):
     with pytest.raises(ValueError, match='project'):  # legacy API refuses a project-bound binding
         x.advance(plan, base, observations=obs, **args)
     proof = i.verify(exp, plan, planpath(root), b)
+    if successor_approval == 'missing':
+        del exp['approvals']['t2']
+    elif successor_approval == 'revoked':
+        exp['approvals']['t2']['status'] = 'revoked'
+    if successor_approval != 'valid':
+        before = {f: f.read_bytes() for f in tmp_path.iterdir() if f.is_file()}
+        with pytest.raises(ValueError, match='approval'):
+            x.advance(plan, base, observations=obs, project=proof, **args)
+        assert {f: f.read_bytes() for f in tmp_path.iterdir() if f.is_file()} == before
+        return
     first = x.advance(plan, base, observations=obs, project=proof, **args)
     assert first['dispatch'] is True
+    assert i.verify(exp, plan, planpath(root), args['successor']['binding'])['task'] == 't2'
     again = x.advance(plan, base, observations=obs, project=proof, **args)
     assert again['dispatch'] is False and again['replay'] is True
     with pytest.raises(ValueError, match='project'):  # JSON-forged proof is not a verification result
         x.advance(plan, base, observations=obs, project=dict(proof), **args)
+
+
+@pytest.mark.parametrize('change', ['root', 'binding', 'revoked', 'origin'])
+def test_consuming_boundary_revalidates_proof(tmp_path, change):
+    root = world(tmp_path)
+    plan, base, binding, _, obs = prepared(tmp_path, root)
+    exp = expectation(root)
+    i.bind(exp, plan, planpath(root), binding)
+    proof = i.verify(exp, plan, planpath(root), binding)
+    if change == 'root':
+        other = world(tmp_path, name='sibling')
+        git(other, 'remote', 'set-url', 'origin', 'https://github.com/acme/alpha.git')
+        base = planpath(other).parent
+    elif change == 'binding':
+        binding.write_bytes(binding.read_bytes() + b'\n')
+    elif change == 'origin':
+        git(root, 'remote', 'set-url', 'origin', 'https://github.com/acme/unapproved.git')
+    else:
+        exp['approvals']['t1']['status'] = 'revoked'
+    with pytest.raises(ValueError):
+        l.bound(plan, base, binding, obs, ['t1'], project=proof)
+
+
+def test_proof_cannot_be_publicly_constructed():
+    with pytest.raises(ValueError):
+        i.Verified()
 
 
 def test_rollback_keeps_state_and_never_migrates(tmp_path):

@@ -38,9 +38,31 @@ class Unsupported(ValueError):
     """Explicit block: a host/checkout shape this module cannot verify (not a silent pass)."""
 
 
+_PROOF_KEY = object()
+
+
 class Verified(dict):
-    """Result of verify(); only this type unlocks project-bound legacy entry points."""
-    binding = None
+    """Context for revalidation, not a transferable authorization capability."""
+    def __init__(self, *args, _key=None, _context=None, **kwargs):
+        if _key is not _PROOF_KEY:
+            raise ValueError('project proof must come from verify')
+        super().__init__(*args, **kwargs)
+        object.__setattr__(self, '_context', _context)
+
+    def __setattr__(self, name, value):
+        raise AttributeError('verification context is immutable')
+
+    @property
+    def binding(self):
+        return self._context[2]
+
+    @property
+    def expectation(self):
+        return self._context[0]
+
+    @property
+    def plan_path(self):
+        return Path(self._context[1])
 
 
 def _text(v, name, high=200):
@@ -194,7 +216,7 @@ def check_task(expect, plan, plan_path, task, observe=observe):
             or not _same_repo(r['repository'], expect['repository']) \
             or r['plan_hash'] != plan_hash or r['spec_sha256'] != spec_hash:
         raise ValueError('approval is revoked, superseded, stale or bound to another project/repository/scope')
-    return Verified(authorizes=False, merge_authorized=False, project_id=expect['project_id'],
+    return dict(authorizes=False, merge_authorized=False, project_id=expect['project_id'],
                     repository=expect['repository'], task=task,
                     approval=dict(ref=r['ref'], source=r['source'], status=r['status'], revision=r['revision']),
                     checkout=seen)
@@ -257,16 +279,24 @@ def verify(expect, plan, plan_path, binding, observe=observe):
         raise ValueError('envelope approval reference differs from controller evidence')
     if _binding_ref(plan, plan_path, binding)[0] != env['task']:
         raise ValueError('binding task differs from envelope')
-    out = Verified(report, binding_sha256=env['binding_sha256'])
-    out.binding = str(Path(binding).resolve())
-    return out
+    return Verified(report, binding_sha256=env['binding_sha256'], _key=_PROOF_KEY,
+                    _context=(expect, str(Path(plan_path).resolve()), str(Path(binding).resolve()),
+                              env['binding_sha256'], observe))
 
 
 # ------------------------------------------------------------------ entry-point guard
-def assert_project(binding, project):
-    """Legacy entry points call this: project-bound state needs a Verified proof for that binding."""
-    if _marker(binding).exists() and not (isinstance(project, Verified) and project.binding == str(Path(binding).resolve())):
+def assert_project(binding, project, plan=None, root=None):
+    """Recheck current operation identity/approval and bytes before consuming state."""
+    if project is None and not _marker(binding).exists():
+        return None
+    if not isinstance(project, Verified) or project.binding != str(Path(binding).resolve()):
         raise ValueError('project-bound state requires project-mode verification')
+    if plan is None or root is None or not _same(project.plan_path.parent, root):
+        raise ValueError('project proof belongs to a different operational root')
+    if hashlib.sha256(Path(binding).read_bytes()).hexdigest() != project._context[3]:
+        raise ValueError('binding changed after project verification')
+    return verify(project.expectation, plan, Path(root) / project.plan_path.name,
+                  binding, project._context[4])
 
 
 def add_arguments(parser):

@@ -7,7 +7,7 @@ from agent_workflow_pilot.controller import checkpoint as c, identity, program a
 
 
 def bound(plan, root, binding, observations, scope, project=None):
-    identity.assert_project(binding, project)  # project-bound state needs a Verified proof
+    identity.assert_project(binding, project, plan, root)
     active = p.load(binding)
     p.select(plan, root, observations, active, scope=scope)
     if active['task'] not in scope:

@@ -19,7 +19,7 @@ One small versioned adapter at Program/Delivery entry points. It does not authen
 
 - `--mode legacy` (default): exactly the old behaviour and bytes. **Not multi-project safe.** It refuses a binding that has an identity envelope (`<binding>.identity.json`), so a legacy entrypoint cannot accidentally consume project-bound state. It rejects `--expect`.
 - `--mode project --expect FILE`: the expectation is validated, the checkout observed and the envelope verified **before** the binding, observations or checkpoint are read. Missing `--expect`, missing envelope, or any mismatch exits 1. Creating commands (`program record`, `lifecycle prepare`, successor in `continuation`) check checkout and approval first, then write the envelope after success. A crash in between leaves a binding with no envelope, which project mode refuses until `identity bind` is run.
-- Python API: `lifecycle.attach/reconcile` and `continuation.advance` refuse project-bound bindings unless given `project=<identity.verify(...) result>`; a JSON dict cannot stand in for it.
+- Python API: `lifecycle.attach/reconcile` and `continuation.advance` revalidate the current operational root, binding bytes, checkout/origin and current controller approval using `project=<identity.verify(...) result>`. The result holds revalidation context, not reusable authority; ordinary construction or a JSON dict cannot stand in for it. Direct continuation checks successor approval before journal/successor writes and creates the successor envelope before returning a dispatch grant. CLI and API use that same operation.
 - `python -m agent_workflow_pilot.controller.identity check|bind|verify --plan --expect [--binding] [--task]`.
 
 ## Files

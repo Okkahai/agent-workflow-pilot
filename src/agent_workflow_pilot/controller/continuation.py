@@ -33,7 +33,7 @@ def advance(plan, root, journal, binding, observations, scope, event,
     if not isinstance(event, str) or not event.strip():
         raise ValueError('event required')
     binding = str(Path(binding).resolve())
-    identity.assert_project(binding, project)  # before any project-bound state is read
+    project = identity.assert_project(binding, project, plan, root)
     current_binding = p.load(binding)
     if str(Path(journal).resolve()) in (binding, current_binding['delivery']):
         raise ValueError('journal must be separate from binding/delivery')
@@ -81,6 +81,9 @@ def advance(plan, root, journal, binding, observations, scope, event,
         retired = [v['binding'] for v in state['events'].values()]
         if next_binding in retired:
             raise ValueError('cannot reuse retired binding')
+        if project is not None:
+            identity.check_task(project.expectation, plan, Path(root) / project.plan_path.name,
+                                successor['task'])
         # An orphan from an interrupted preparation is ambiguous: recover identity,
         # but never issue a new dispatch grant.
         dispatch = not recovering and not Path(next_binding).exists() and not Path(delivery).exists()
@@ -88,6 +91,8 @@ def advance(plan, root, journal, binding, observations, scope, event,
         _save(journal, state)
         l.prepare(plan, root, next_binding, delivery, observations, scope,
                   successor['task'], successor['acceptance'], successor['intent'])
+        if project is not None:
+            identity.bind(project.expectation, plan, Path(root) / project.plan_path.name, next_binding)
     elif successor is not None:
         raise ValueError('no successor authorized')
     result.update(dispatch=dispatch, binding=next_binding,
@@ -112,11 +117,7 @@ def main(argv=None):
         expect, proof = identity.enter(a.mode, a.expect, plan, a.plan, args.get('binding'))
         if expect is not None:
             args['project'] = proof
-            if args.get('successor'):
-                identity.check_task(expect, plan, a.plan, args['successor']['task'])
         result = advance(plan, Path(a.plan).parent, observations=p.load(a.observations), **args)
-        if expect is not None and result.get('binding'):
-            identity.bind(expect, plan, a.plan, result['binding'])
         print(json.dumps(result, sort_keys=True))
         return 0
     except (ValueError, OSError, TypeError, KeyError) as error:
