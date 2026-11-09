@@ -1,6 +1,6 @@
 # A1 project identity and approval binding — implemented draft
 
-Status: draft implementation on `agent/a1-identity-binding`, `report_ready` at most. Unmerged; needs CI, fresh non-author cross-provider review and a separate merge authorization. Proposed architecture lives in `docs/plans/universal-modernization/`; this file records what was built. Code: `src/agent_workflow_pilot/controller/identity.py`; tests: `tests/test_identity.py`.
+Status: A1 is `report_ready`, draft and unmerged. The implementation at `b6fe40b1c460c8e4de1e5f01139ac342a916b66a` passed required CI and both independent cross-provider reviews. Exact-head evidence must be renewed for every subsequent revision; publication does not grant ready or merge authorization. Proposed architecture lives in `docs/plans/universal-modernization/`; this file records what was built. Code: `src/agent_workflow_pilot/controller/identity.py`; tests: `tests/test_identity.py`.
 
 ## What it is
 
@@ -27,6 +27,17 @@ One small versioned adapter at Program/Delivery entry points. It does not authen
 Expectation `agent-workflow-pilot.identity-expectation/1` (controller-owned, **never** inside the repo a worker edits): `project_id`, `repository`, `checkouts` (absolute approved roots incl. approved worktrees), `common_dir`, `approvals` keyed by task. Approval record (closed): `ref, source (user_decision|trusted_policy), designated, project_id, repository, task, scope, plan_hash, spec_sha256, operation ("implement" only), status (valid|revoked|superseded), revision`. Envelope `agent-workflow-pilot.identity/1` (closed): `project_id, repository, task, plan_hash, spec_sha256, binding_sha256, approval_ref`. An envelope can never be passed as an expectation (schema check). Extra fields such as `approved` are rejected.
 
 ## Trust limits (read before relying on it)
+
+Three accepted nonblocking limitations are tracked in the existing canonical
+`docs/readiness/routing-gap-register.md` as A1-P3-01, A1-P3-02 and A1-P3-03.
+For every Python API operation, reload independently current controller approval
+evidence and obtain a fresh verification result. A long-lived proof retains an
+in-memory expectation reference and does not detect later revocation on disk;
+CLI calls reload each invocation. Interrupted non-atomic envelope writes fail
+closed: preserve partial markers, legacy state and uncertainty for reviewed
+manual recovery, never reset state to resume. Custom-observer successor checks
+currently use the default observer; custom-observer continuation is not a
+supported operational guarantee. These findings are tracked, not fixed here.
 
 - Python cannot tell who wrote a file. The expectation and approval evidence are trusted *assertions*; the controller must keep them where workers cannot write. Roadmap `approved`/`decision` flags and PR flags remain necessary but are never sufficient in project mode.
 - Origin is the local `remote.origin.url`; it is not fetched or compared with the network and a local config edit is not detected beyond the expectation.
