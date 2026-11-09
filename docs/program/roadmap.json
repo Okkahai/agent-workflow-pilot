@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": "m1-gap-approved-2026-11-08",
+  "revision": "dynamic-routing-approved-2026-11-09",
   "tasks": [
     {
       "id": "m1-core",
@@ -227,6 +227,30 @@
       ],
       "owns": [],
       "spec": "tasks/pc3-b.md"
+    },
+    {
+      "id": "dynamic-routing",
+      "title": "Dynamic multi-provider routing and safe continuation",
+      "milestone": "M3",
+      "kind": "code",
+      "approved": true,
+      "decision": true,
+      "priority": 0,
+      "depends_on": [
+        "pc3",
+        "m1-gap"
+      ],
+      "owns": [
+        "src/agent_workflow_pilot/routing.py",
+        "tests/test_routing.py",
+        "tests/test_routing_conformance.py",
+        "harness/policies/",
+        "docs/orchestration/model-routing.md",
+        "docs/orchestration/routing.md",
+        "docs/adr/0003-dynamic-routing.md",
+        "docs/readiness/routing-gap-register.md"
+      ],
+      "spec": "tasks/dynamic-routing.md"
     }
   ]
 }
