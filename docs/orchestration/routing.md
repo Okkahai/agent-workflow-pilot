@@ -120,6 +120,12 @@ independent current head. Attempts (including historic heads/routes/native IDs)
 and event receipts remain byte-equivalent as JSON values. Stale context or
 checkpoint evidence fails closed. No M1/checkpoint/graph schema changes.
 
+Every intent and persisted attempt must use its role's primary or approved
+alternate target, including the first attempt. The attempt-count limit prevents
+appending another intent; it does not prevent refreshing terminal context or
+reviewing the final allowed attempt. Recovery reporting a free writer slot never
+grants another dispatch; `apply(intent)` separately enforces the attempt limit.
+
 CLI: `refresh RECORD --policy POLICY --expected EXPECTED --checkpoint CHECKPOINT
 --context CONTEXT --root ROOT --plan docs/program/roadmap.json`. It atomically
 saves the refreshed sidecar and returns `dispatch_allowed=false`. The controller

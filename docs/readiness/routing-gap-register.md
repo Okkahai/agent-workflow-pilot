@@ -4,10 +4,10 @@ Dated 2026-11-09, scope: dynamic provider routing milestone (plan: docs/plans/dy
 
 | ID | Status | Evidence / next |
 | --- | --- | --- |
-| ROUTE-01 dynamic routing coded | partial: local-test | `routing.py`, `routing-v1.json`, `tests/test_routing.py`. Live capability decisions and bounded live tasks are open; the Coordinator must run them. |
+| ROUTE-01 dynamic routing coded | local-test + bounded live | `routing.py`, `routing-v1.json`, routing/conformance tests. Coordinator recorded actual Sonnet then Sol native Builder results, explicit advertised routes and actual router decisions from the saved live capability snapshot. This does not establish general provider equivalence. |
 | ROUTE-02 cross-provider review, mixed authorship | partial: local-test | `validate_reviews` with Claude to Codex, Codex to Claude, mixed, stale head, alias, cross-project cases. Final mixed-head reviews by real non-author reviewers are open. |
 | ROUTE-03 subscription telemetry | advisory only | No trusted quota API in the installed T3 schema. Unknown stays unknown; reserve is advisory; thresholds apply only to supplied measured readings. Revisit if a supported quota API appears. |
-| FALL-01 provider switch, attempt identity | partial: local-test | Intent before call, replay no dispatch, one writer, children/writer ambiguity, scope/budget/head freshness, checkpoint head change. Live Sonnet/Sol switch and reuse of an existing isolated checkout without full-history injection: open; report the limit if T3 cannot do it. |
+| FALL-01 provider switch, attempt identity | bounded live + local-test | Coordinator verified terminal Sonnet/no children, persisted routing-module Sol intent before fresh task-only native delegation, reused the same isolated worktree/branch/PR, reconciled actual returned Sol IDs and terminal completion, and exercised fresh-process/replay/stale-context rejection. Local evidence under `docs/readiness/dynamic-routing/`. Initial Sonnet sidecar registration was retrospective and is labelled; no initial module-dispatch claim. Planned terminal switch is not real quota exhaustion, remote crash or exactly-once proof. |
 | QA-01 evidence class separation | partial | Tests and docs label mocked, local-file and live evidence; the final readiness report must keep that labelling. |
 | DOC-01 docs drift | partial: doc | model-routing.md rewritten, routing.md and ADR 0003 added. No CI check yet that docs mention current policy values or links stay valid. |
 | CONT-01 single current architecture/readiness register | open | This register and the gap list below are the only current record; no CI drift test. |
@@ -24,4 +24,4 @@ Unchanged by this milestone and not selected: M1 gap is delivered at main fcfec4
 - Single trusted writer, local filesystem, no exactly-once or crash guarantee.
 - Ubuntu link unreachable at observation time: no Ubuntu isolation claim.
 - Quota percentages are caller-supplied; the module cannot verify their origin.
-- Review and fallback demonstrations on real providers are Coordinator work after this PR.
+- Final mixed-head reviews remain Coordinator work; initial independent Codex review found two P2 boundaries. Both were reproduced and corrected with role-target and final-allowed-attempt refresh regressions; final exact-head reviews and CI must supersede the old result.

@@ -497,6 +497,10 @@ def validate_record(rec, policy):
         _enum(a.get('state'), STATES, path + '.state', p)
         _enum(a.get('role'), tuple(policy['roles']), path + '.role', p)
         _enum(a.get('target'), tuple(policy['targets']), path + '.target', p)
+        if isinstance(a.get('role'), str) and a['role'] in policy['roles']:
+            role = policy['roles'][a['role']]
+            if a.get('target') not in (role['primary'], *role['alternates']):
+                p.append(path + '.target: not allowed for role')
         _txt(a.get('client_request_id'), path + '.client_request_id', p, 100)
         handoff._sha(a.get('head'), path + '.head', p)
         if isinstance(a.get('target'), str) and a['target'] in policy['targets'] and a.get('route') != {
@@ -579,6 +583,9 @@ def _switch_problems(rec, policy, expected, cp, role, target):
         p.append('checkpoint: retry budget changed')
     if cp['lifecycle'] == 'blocked':
         p.append('checkpoint: blocked (correction budget exhausted or unresolved) holds the slot')
+    spec = policy['roles'][role]
+    if target not in (spec['primary'], *spec['alternates']):
+        p.append('target: not allowed for role')
     last = rec['attempts'][-1] if rec['attempts'] else None
     if last is None:
         return p
@@ -591,9 +598,6 @@ def _switch_problems(rec, policy, expected, cp, role, target):
         p.append('predecessor: not terminal; slot is held')
     if last['writer'] != 'none' or last['children'] is None:
         p.append('predecessor: writer or children unknown; slot is held')
-    if len(rec['attempts']) >= policy['max_attempts']:
-        p.append('attempts: policy maximum reached')
-    spec = policy['roles'][role]
     allowed = {spec['primary'], *spec['auto_switch']}
     if last['target'] != target and not {last['target'], target} <= allowed:
         p.append('switch: not an automatically authorized fallback for this role')
@@ -640,6 +644,8 @@ def apply(rec, policy, expected, event_id, action, data, cp=None):
         if cp is None:
             raise ValueError('checkpoint required')
         problems = _switch_problems(new, policy, expected, cp, data['role'], data['target'])
+        if len(new['attempts']) >= policy['max_attempts']:
+            problems.append('attempts: policy maximum reached')
         _fail(problems)
         tgt = policy['targets'][data['target']]
         new['attempts'].append(dict(

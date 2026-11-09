@@ -1,6 +1,7 @@
 """Local CLI simulations; no live T3 dispatch, quota outage or crash guarantee."""
 import copy
 import json
+import pytest
 
 
 from agent_workflow_pilot import routing, task_context as tc
@@ -19,7 +20,8 @@ def test_planning_fallback_requires_choice_but_implementation_can_switch():
     assert routing.decide(POLICY, request('standard', snap=unavailable))['decision'] == 'route'
 
 
-def test_refresh_requires_reconstructed_current_context_preserves_history(tmp_path):
+@pytest.mark.parametrize('attempt_count', [1, POLICY['max_attempts']])
+def test_refresh_requires_reconstructed_current_context_preserves_history(tmp_path, attempt_count):
     plan_path = ROOT / 'docs/program/roadmap.json'
     plan = program.load(plan_path)
     task = next(t for t in plan['tasks'] if t['id'] == 'dynamic-routing')
@@ -46,12 +48,13 @@ def test_refresh_requires_reconstructed_current_context_preserves_history(tmp_pa
     rec = routing.new_record(POLICY, **{k: old_expected[k] for k in
         ('project', 'repo', 'task', 'plan_hash', 'context_hash', 'scope_sha256', 'retry_budget')},
         checkpoint_key='task-key', workspace={k: old_expected[k] for k in ('branch', 'worktree', 'pr')})
-    for eid, action, data in [
-        ('intent', 'intent', dict(attempt='att-1', role='planning_builder', target='sonnet', client_request_id='req-1')),
-        ('start', 'started', dict(attempt='att-1', native=dict(task='native-1', thread='thread-1'),
-                                returned=dict(provider='claudeAgent', model='claude-sonnet-5-5', effort='medium'))),
-        ('end', 'terminal', dict(attempt='att-1', outcome='complete', writer='none', children=[]))]:
-        rec, _ = routing.apply(rec, POLICY, old_expected, eid, action, data, cp())
+    for i in range(1, attempt_count + 1):
+        for eid, action, data in [
+            (f'intent-{i}', 'intent', dict(attempt=f'att-{i}', role='planning_builder', target='sonnet', client_request_id=f'req-{i}')),
+            (f'start-{i}', 'started', dict(attempt=f'att-{i}', native=dict(task=f'native-{i}', thread=f'thread-{i}'),
+                                        returned=dict(provider='claudeAgent', model='claude-sonnet-5-5', effort='medium'))),
+            (f'end-{i}', 'terminal', dict(attempt=f'att-{i}', outcome='complete', writer='none', children=[]))]:
+            rec, _ = routing.apply(rec, POLICY, old_expected, eid, action, data, cp())
     old_attempts = copy.deepcopy(rec['attempts'])
     path, exp, state, ctx = [tmp_path / n for n in ('rec.json', 'expected.json', 'cp.json', 'ctx.json')]
     routing.save(path, rec)
@@ -73,6 +76,11 @@ def test_refresh_requires_reconstructed_current_context_preserves_history(tmp_pa
     assert saved['attempts'] == old_attempts
     assert saved['events'] == rec['events']
     assert saved['context_hash'] == digest
+    if attempt_count == POLICY['max_attempts']:
+        with pytest.raises(ValueError, match='maximum'):
+            routing.apply(saved, POLICY, e, 'one-more', 'intent', dict(
+                attempt='extra', role='planning_builder', target='sol', client_request_id='extra'),
+                checkpoint.load(state))
     common = ['--policy', str(POLICY_PATH), '--expected', str(exp), '--checkpoint', str(state)]
     assert cli('recover', str(path), *common, '--context', str(ctx), '--root', str(ROOT),
                '--plan', 'docs/program/roadmap.json')[1]['slot'] == 'free'

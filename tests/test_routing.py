@@ -560,6 +560,19 @@ def test_changed_head_clears_ci_review_and_stale_checkpoint_blocks_switch():
     intent(rec, 2, 'sol', exp=expected(head=HEAD2), state=s)  # reconciled checkpoint at new head
 
 
+@pytest.mark.parametrize('role,target', [
+    ('program_delivery', 'haiku'), ('planning_builder', 'terra'),
+    ('scoped_bugfix', 'haiku'), ('mechanical', 'sonnet'), ('docs', 'sol'),
+])
+def test_intent_and_persisted_attempt_reject_target_outside_role(role, target):
+    with pytest.raises(ValueError, match='role'):
+        intent(fresh(), 1, target, role)
+    rec, _ = intent(fresh(), 1)
+    rec['attempts'][0].update(role=role, target=target, route=POLICY['targets'][target])
+    with pytest.raises(ValueError, match='role'):
+        routing.validate_record(rec, POLICY)
+
+
 def test_max_attempts_policy_limit():
     rec = run(run(run(fresh(), 1), 2, 'sol'), 3)
     with pytest.raises(ValueError, match='maximum'):
