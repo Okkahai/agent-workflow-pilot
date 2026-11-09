@@ -418,7 +418,8 @@ def decide(policy, request):
     if not blocked[role['primary']]:
         return dict(base, decision='route', route=_route(policy, role['primary']), fallback=None)
     candidates = [n for n in role['alternates'] if not blocked[n]]
-    auto = [n for n in candidates if n in role['auto_switch']]
+    auto = [n for n in candidates if n in role['auto_switch']
+            and request['classification']['category'] in ('standard', 'complex', 'bugfix')]
     if auto:
         return dict(base, decision='route', route=_route(policy, auto[0]),
                     fallback=dict(from_target=role['primary'], reasons=blocked[role['primary']],
@@ -683,6 +684,28 @@ def apply(rec, policy, expected, event_id, action, data, cp=None):
     return validate_record(new, policy), outcome
 
 
+def refresh(rec, policy, expected, cp, context, root, plan_path):
+    """Refresh current context after a commit, retaining historic attempts/receipts.
+
+    Requires independently reconstructed M1 sources and a reconciled checkpoint;
+    never releases a writer or authorizes dispatch.
+    """
+    previous = dict(expected, plan_hash=rec['plan_hash'], context_hash=rec['context_hash'])
+    _bind(rec, previous, policy)
+    last = rec['attempts'][-1] if rec['attempts'] else None
+    if last is None or last['state'] != 'terminal' or last['head'] == expected['head']:
+        raise ValueError('refresh: requires terminal predecessor and a changed head')
+    _fail(_switch_problems(rec, policy, previous, cp, last['role'], last['target']))
+    rebuilt = task_context.reconstruct(context, root, plan_path, current_head=expected['head'],
+                                      task_id=expected['task'], repo=expected['repo'])
+    if rebuilt['context_hash'] != expected['context_hash'] or context['plan_hash'] != expected['plan_hash']:
+        raise ValueError('refresh: reconstructed hashes differ from expectation')
+    new = copy.deepcopy(rec)
+    new.update(plan_hash=expected['plan_hash'], context_hash=expected['context_hash'])
+    _bind(new, expected, policy)
+    return new
+
+
 def recover(rec, policy, expected, cp, *, context_hash=None):
     """Fresh-process summary. Never dispatches; the slot is free only when provably so."""
     _bind(rec, expected, policy)
@@ -801,16 +824,17 @@ def main(argv=None):
     sub.add_parser('policy').add_argument('policy')
     d = sub.add_parser('decide', help='stdin: request JSON; stdout: decision')
     d.add_argument('--policy', required=True)
-    for name in ('init', 'apply', 'recover', 'reviews'):
+    for name in ('init', 'apply', 'recover', 'reviews', 'refresh'):
         s = sub.add_parser(name)
         s.add_argument('record')
         s.add_argument('--policy', required=True)
         s.add_argument('--expected', help='independent expectation JSON file')
         s.add_argument('--checkpoint', help='delivery checkpoint JSON file')
-    r = sub.choices['recover']
-    r.add_argument('--context', help='existing M1 task-context envelope')
-    r.add_argument('--root')
-    r.add_argument('--plan')
+    for name in ('recover', 'refresh'):
+        r = sub.choices[name]
+        r.add_argument('--context', help='existing M1 task-context envelope')
+        r.add_argument('--root')
+        r.add_argument('--plan')
     a = ap.parse_args(argv)
     try:
         policy, sha = load_policy(a.policy)
@@ -829,7 +853,11 @@ def main(argv=None):
         else:
             rec, expected = _read(a.record), _read(a.expected)
             cp = _read(a.checkpoint) if a.checkpoint else None
-            if a.cmd == 'apply':
+            if a.cmd == 'refresh':
+                new = refresh(rec, policy, expected, cp, _read(a.context), a.root, Path(a.root) / a.plan)
+                save(a.record, new)
+                out = dict(ok=True, authorizes=False, dispatch_allowed=False)
+            elif a.cmd == 'apply':
                 event = _stdin()
                 new, outcome = apply(rec, policy, expected, event.get('event_id'),
                                      event.get('action'), event.get('data'), cp)

@@ -158,7 +158,7 @@ def test_risk_complexity_budget_never_change_cost():
     ({'providers__claudeAgent__models__claude-sonnet-5-5': DELETE}, 'standard', 'sol'),
     ({'providers__claudeAgent__enabled': False}, 'standard', 'sol'),
     ({'providers__claudeAgent__models__claude-sonnet-5-5__efforts': ['low', 'high']}, 'complex', 'sol'),
-    ({'providers__claudeAgent__child_tasks': False}, 'planning', 'sol'),
+    ({'providers__claudeAgent__child_tasks': False}, 'standard', 'sol'),
     ({'providers__codex__models__gpt-6.1-sol': DELETE}, 'bugfix', 'sonnet'),
     ({'providers__codex__enabled': False}, 'bugfix', 'sonnet'),
 ])

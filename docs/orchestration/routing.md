@@ -96,3 +96,32 @@ PC1-PC3 and M1 tests remain unchanged and passing. Fixtures in `tests/test_routi
 ## Portability boundaries and migration
 
 Reusable core: `routing.py` plus the policy file. It needs no pilot globals, milestone IDs, paths or environment IDs; a project supplies its own policy file, expectation and state paths. Remaining pilot coupling, deferred and tracked in [routing-gap-register.md](../readiness/routing-gap-register.md): pilot M1 to M5 enum and schema names and the `roadmap.json` convention; local evidence storage layout; onboarding that distributes skills and validators but not the controller; installation packaging and import paths (`agent_workflow_pilot` is not yet a shared package); immutable policy-version migration (a changed policy requires an explicit new record, `policy_sha256` is checked); checkpoint sidecar compatibility (the sidecar only references checkpoint v1 and must be re-verified on any checkpoint version bump); and tests with two independent repositories of different stacks, roots and repo IDs. Not claimed: that routing closes any of these.
+
+
+## Conformance continuation
+
+`tests/test_routing_conformance.py` exercises fresh CLI processes against the actual
+versioned policy, persisted predispatch intent observed by a mocked executor,
+terminal children before succession, replay without dispatch, conserved identity,
+scope and retry budget, reconstructed M1 context, and mixed-provider final review.
+These are local simulations, not live T3 behavior or crash guarantees.
+
+Automatic `decide` fallback is limited to implementation categories `standard`,
+`complex`, and `bugfix`. Planning and architecture return a candidate requiring
+caller choice. The historic role name `planning_builder` remains unchanged for
+sidecar/policy compatibility; it also names standard/complex implementation.
+An intent alone carries no classification approval or independent authority.
+
+After a real new commit, `refresh(rec, policy, expected, cp, context, root,
+plan_path)` refreshes only current `plan_hash` and `context_hash`. It requires a
+terminal predecessor at a different head, matching identity/scope/budget/workspace,
+a reconciled checkpoint, and successful existing M1 reconstruction against the
+independent current head. Attempts (including historic heads/routes/native IDs)
+and event receipts remain byte-equivalent as JSON values. Stale context or
+checkpoint evidence fails closed. No M1/checkpoint/graph schema changes.
+
+CLI: `refresh RECORD --policy POLICY --expected EXPECTED --checkpoint CHECKPOINT
+--context CONTEXT --root ROOT --plan docs/program/roadmap.json`. It atomically
+saves the refreshed sidecar and returns `dispatch_allowed=false`. The controller
+must retain old envelopes/evidence as history and supply fresh source-derived M1
+hashes; editing hashes directly is not recovery. The policy file/hash is unchanged.
