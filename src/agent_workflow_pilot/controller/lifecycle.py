@@ -3,10 +3,11 @@ import argparse
 import json
 from pathlib import Path
 import sys
-from agent_workflow_pilot.controller import checkpoint as c, program as p
+from agent_workflow_pilot.controller import checkpoint as c, identity, program as p
 
 
-def bound(plan, root, binding, observations, scope):
+def bound(plan, root, binding, observations, scope, project=None):
+    identity.assert_project(binding, project, plan, root)
     active = p.load(binding)
     p.select(plan, root, observations, active, scope=scope)
     if active['task'] not in scope:
@@ -36,8 +37,8 @@ def prepare(plan, root, binding, delivery, observations, scope, task, acceptance
     return dict(action='reconcile_native_intent', intent=intent, dispatch=False)
 
 
-def attach(plan, root, binding, observations, scope, refs):
-    active, task, state = bound(plan, root, binding, observations, scope)
+def attach(plan, root, binding, observations, scope, refs, project=None):
+    active, task, state = bound(plan, root, binding, observations, scope, project)
     if any(k in state['refs'] and state['refs'][k] != v for k,v in refs.items()):
         raise ValueError('conflicting native identity')
     state = c.apply(state, 'native-attachment', 'started', refs=refs)
@@ -45,9 +46,9 @@ def attach(plan, root, binding, observations, scope, refs):
     return state
 
 
-def reconcile(plan, root, binding, observations, scope, native, head):
+def reconcile(plan, root, binding, observations, scope, native, head, project=None):
     """Read fresh native and host evidence, never worker assertions. No merge authority."""
-    active, task, state = bound(plan, root, binding, observations, scope)
+    active, task, state = bound(plan, root, binding, observations, scope, project)
     p.graph._fields(native, ('task', 'thread', 'status', 'children_terminal', 'ref'), 'native')
     if any(not isinstance(value, str) or not value.strip()
            for k in ('task', 'thread') for value in (native[k], state['refs'].get(k))):
@@ -88,11 +89,19 @@ def main(argv=None):
     parser.add_argument('--binding', required=True)
     parser.add_argument('--observations', required=True)
     parser.add_argument('--input', required=True, help='trusted controller JSON arguments, including scope')
+    identity.add_arguments(parser)
     a = parser.parse_args(argv)
     try:
         args = p.load(a.input)
-        fn = prepare if a.command=='prepare' else attach if a.command=='attach' else reconcile
-        result = fn(p.load(a.plan), Path(a.plan).parent, a.binding, observations=p.load(a.observations), **args)
+        plan = p.load(a.plan)
+        creating = a.command == 'prepare'
+        expect, proof = identity.enter(a.mode, a.expect, plan, a.plan, a.binding, args.get('task') if creating else None)
+        fn = prepare if creating else attach if a.command=='attach' else reconcile
+        if proof is not None:
+            args['project'] = proof
+        result = fn(plan, Path(a.plan).parent, a.binding, observations=p.load(a.observations), **args)
+        if creating and expect is not None:
+            identity.bind(expect, plan, a.plan, a.binding)
         print(json.dumps(result, sort_keys=True, indent=2))
         return 0
     except (ValueError, OSError, TypeError, KeyError) as error:

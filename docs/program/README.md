@@ -136,3 +136,7 @@ remote exactly-once mechanism. Never feed worker-authored claims as verified
 observations. Single writer required. Crash after intent persistence requires
 native reconciliation, never blind retry; remote crash behavior is untested.
 CI and independent review remain separate controller responsibilities.
+
+## A1 project identity (draft)
+
+Project-scoped use of these commands (`--mode project --expect FILE`) is described in [identity.md](identity.md). Default `--mode legacy` is unchanged and not multi-project safe.

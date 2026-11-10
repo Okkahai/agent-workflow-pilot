@@ -11,6 +11,8 @@ next_intended_work: "First: approved multi-provider routing draft-PR milestone w
 security: "No credentials, PATs, passwords, pairing codes, or private keys should be copied into this dossier"
 ---
 
+> **Historical context, dated 2026-11-09.** This dossier is a point-in-time recovery record, not current status or authority, and is not loaded by AGENTS/CLAUDE. Current records: [consolidated gap register](docs/readiness/routing-gap-register.md), [Universal Contract](docs/contract/universal-contract-v1.md), [roadmap](docs/program/roadmap.json) and [A1 identity binding](docs/program/identity.md). Where they differ, they win.
+
 # UNIVERSAL AGENT ENGINEERING HARNESS
 ## Ana proje belgesi, mimari karar kaydı, eksik listesi ve yeni oturumdan kurtarma kılavuzu
 
