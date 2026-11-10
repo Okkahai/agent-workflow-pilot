@@ -460,3 +460,15 @@ def test_rollback_keeps_state_and_never_migrates(tmp_path):
     # An older/legacy reader must stop on project-bound state, leaving every byte in place.
     assert _cli('lifecycle', 'prepare', *common).returncode == 1
     assert {f.name: f.read_bytes() for f in tmp_path.iterdir() if f.is_file()} == snap
+
+
+def test_changed_milestone_invalidates_approval_and_binding(tmp_path):
+    """A2: milestone is hashed plan data; editing it stales A1 expectations like any plan change."""
+    root, plan, b = _bound(tmp_path)
+    i.verify(expectation(root), plan, planpath(root), b)
+    for name in ('alpha', 'm1'):
+        changed = copy.deepcopy(plan)
+        changed['tasks'][0]['milestone'] = name
+        assert p.fingerprint(changed, planpath(root).parent) != p.fingerprint(plan, planpath(root).parent)
+        with pytest.raises(ValueError):
+            i.verify(expectation(root), changed, planpath(root), b)

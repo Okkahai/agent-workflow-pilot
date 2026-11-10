@@ -11,6 +11,11 @@ from agent_workflow_pilot.handoff import parse, SHA
 from agent_workflow_pilot.controller import checkpoint, identity
 
 
+# A2: milestones are inert labels. Case/bytes preserved exactly (M1 != m1); ASCII only,
+# letter-led, internal '-'/'_' only, 1-64 chars. fullmatch (never `$`) so a trailing newline fails.
+MILESTONE = re.compile(r'[A-Za-z](?:[A-Za-z0-9_-]{0,62}[A-Za-z0-9])?')
+
+
 def load(path):
     return parse(Path(path).read_text(encoding='utf-8'))
 
@@ -25,7 +30,7 @@ def validate(plan, root):
     for task in plan['tasks']:
         graph._fields(task, ('id', 'title', 'milestone', 'kind', 'approved', 'decision',
                             'priority', 'depends_on', 'owns', 'spec'), 'task')
-        if task['kind'] not in ('code', 'artifact') or task['milestone'] not in ('M1','M2','M3','M4','M5'):
+        if task['kind'] not in ('code', 'artifact') or not (isinstance(task['milestone'], str) and MILESTONE.fullmatch(task['milestone'])):
             raise ValueError('invalid kind/milestone')
         if type(task['approved']) is not bool or type(task['decision']) is not bool or type(task['priority']) is not int:
             raise ValueError('invalid authorization/priority')
