@@ -1,6 +1,6 @@
 # A1 project identity and approval binding — implemented draft
 
-Status: A1 is `report_ready`, draft and unmerged. The implementation at `b6fe40b1c460c8e4de1e5f01139ac342a916b66a` passed required CI and both independent cross-provider reviews. Exact-head evidence must be renewed for every subsequent revision; publication does not grant ready or merge authorization. Proposed architecture lives in `docs/plans/universal-modernization/`; this file records what was built. Code: `src/agent_workflow_pilot/controller/identity.py`; tests: `tests/test_identity.py`.
+Status: A1 delivered in PR21 at main b013c82c2773607ea320709920dfe6680f14ff39 with successful postmerge CI. Historical review evidence and three accepted open A1 P3 limits remain applicable; this is not full portability or adoption evidence.
 
 ## What it is
 

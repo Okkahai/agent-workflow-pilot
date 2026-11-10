@@ -33,4 +33,4 @@ Asset rollback and execution-state recovery are separate. If reverted code canno
 
 ## Current proof boundary
 
-PC1–PC3, M1 and bounded dynamic routing are delivered. A1 (draft, unmerged) adds an inert identity/approval adapter for GitHub-origin checkouts; registration, relocation, Program-level multi-project isolation, arbitrary milestones, shared external invocation and two-project whole-workflow adoption remain absent or unverified. Windows cross-provider review does not prove Ubuntu isolation. Future implementation stages and all original M2–M5 gaps require authorization.
+PC1-PC3, M1, dynamic routing and A1 are delivered. A1 merged in PR21 at b013c82 with successful postmerge CI. Bounded A2 milestone identifiers are implemented in an unmerged Draft PR; no Ready or merge authorization exists. Registration, relocation, full project isolation, external invocation and two-project adoption remain absent or unverified. Windows reviews do not prove Ubuntu isolation. A1 P3 limits remain open. A3/B/C/D/E and original M2-M5 gap implementations remain unapproved. Earlier proposal statements retain their dated source scope.

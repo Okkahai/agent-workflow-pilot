@@ -77,7 +77,7 @@ save actual CLI JSON outputs during its live demonstration.
 ## PC2 same-delivery lifecycle contract
 
 PC1 and PC2 are approved; PC2 depends on freshly observed delivered PC1.
-All gap rows and PR14 remain unapproved. The approved PC2 plan is
+At the PC2 milestone, gap rows and PR14 were unapproved. Current exceptions are separately authorized M1 gap, A1 and bounded A2; current authority comes from controller approval evidence, not this historical paragraph. PR14 remains excluded. The approved PC2 plan is
 `../plans/program-coordinator-pc2.md`. No readiness state is bundled here.
 
 The single trusted Coordinator owns all calls and local files. The new
