@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -77,7 +78,7 @@ def main(argv=None):
     a = sys.argv[1:]
     plan = Path(a[a.index('--plan') + 1])
     mode = (plan.parent / 'stub-mode.txt').read_text().strip()
-    ok = dict(plan_hash='0' * 64, task=None, tasks={}, explanation='x', merge_authorized=False)
+    ok = json.loads((plan.parent / 'stub-ok.json').read_text())     # genuine-shaped, written by the test
     state = Path(a[a.index('--expect') + 1]).parent.parent.parent
     (plan.parent / 'stub-pid.txt').write_text(str(os.getpid()))
     if mode == 'ok': print(json.dumps(ok)); return 0
@@ -95,8 +96,9 @@ def main(argv=None):
         while True: sys.stderr.write('x' * 65536); sys.stderr.flush()
     if mode == 'sleep': time.sleep(60)
     if mode == 'rogue': (state / 'rogue.txt').write_text('x'); print(json.dumps(ok)); return 0
-    if mode == 'grandchild':
-        subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(6)'])
+    if mode == 'holder':     # long-lived descendant inheriting the pipes; the TEST owns and kills it
+        h = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'])
+        with open(plan.parent / 'stub-holders.txt', 'a') as f: f.write(str(h.pid) + '\\n')
         print(json.dumps(ok)); return 0
     return 9
 if __name__ == '__main__': sys.exit(main())
@@ -113,7 +115,7 @@ def main(argv=None):
     if mode == 'write_sleep': time.sleep(60)
     if mode == 'write_fail': print('lifecycle: failed after write', file=sys.stderr); return 1
     if mode == 'rogue': (binding.parent / 'rogue.txt').write_text('x')
-    print(json.dumps(dict(action='reconcile_native_intent', intent='i', dispatch=False)))
+    print(json.dumps(dict(action='reconcile_native_intent', intent='intent-1', dispatch=False)))
     return 0
 if __name__ == '__main__': sys.exit(main())
 '''
@@ -232,6 +234,10 @@ def world(tmp_path, runtime):
 def swarm(tmp_path, stub):
     w = World(tmp_path, ALT, stub)
     w.mode = lambda m: (w.root / 'ops' / 'stub-mode.txt').write_text(m)
+    doc = p.load(w.plan)
+    (w.root / 'ops' / 'stub-ok.json').write_text(json.dumps(dict(
+        plan_hash=p.fingerprint(doc, w.plan.parent), task=None, explanation='x', merge_authorized=False,
+        tasks={t['id']: dict(state='eligible', explanation=['eligible']) for t in doc['tasks']})))
     return w
 
 
@@ -330,7 +336,7 @@ def test_stateful_write_set_only_designated_state(world):
     assert sorted(world.files()) == ['b.json', 'b.json.identity.json', 'd.json']
 
 
-def test_task_context_validation(world):
+def context_args(world):
     ref = tc.reference(world.root, 'ops/tasks/t1.md')
     handoff = json.loads((REPO / 'docs/orchestration/handoffs/example.json').read_text())
     handoff.update(task_id='t1', head=HEAD)
@@ -341,8 +347,12 @@ def test_task_context_validation(world):
                scope=['s'], exclusions=['merge'], acceptance=['a'], depends_on=[], owns=['src/a/'], owner='w',
                routing='r', risks=['x'], decisions=['d'], context=[ref], next_action='n', handoff=handoff)
     (world.state / 'ctx.json').write_text(json.dumps(doc))
-    ok = dict(file=str(world.state / 'ctx.json'), plan='ops/roadmap.json', current_head=HEAD, task_id='t1',
-              repo=handoff['repo'])
+    return dict(file=str(world.state / 'ctx.json'), plan='ops/roadmap.json', current_head=HEAD, task_id='t1',
+                repo=handoff['repo'])
+
+
+def test_task_context_validation(world):
+    ok = context_args(world)
     for bad in (dict(current_head='b' * 40), dict(plan='../x.json'), dict(plan=str(world.plan)),
                 dict(file=str(world.root.parent / 'outside.json')), dict(task_id='zz'), dict(repo=''),
                 dict(plan='ops/missing.json')):
@@ -729,11 +739,58 @@ def test_timeout_kills_and_returns_promptly(swarm):
     assert not (swarm.state / v.LOCK).exists()      # read-only timeout with unchanged state is not ambiguous
 
 
+def holders(swarm):
+    f = swarm.root / 'ops' / 'stub-holders.txt'
+    return [int(x) for x in f.read_text().split()] if f.exists() else []
+
+
+def reap_holders(swarm):
+    """Fixture-owned cleanup of ONLY the pids the stub recorded; always runs."""
+    for pid in holders(swarm):
+        if os.name == 'nt':
+            subprocess.run(['taskkill', '/PID', str(pid), '/T', '/F'], capture_output=True)
+        else:
+            try:
+                os.kill(pid, 9)
+            except OSError:
+                pass
+
+
+def handle_count():
+    if os.name == 'nt':
+        import ctypes
+        n = ctypes.c_ulong()
+        k = ctypes.windll.kernel32
+        k.GetCurrentProcess.restype = ctypes.c_void_p
+        k.GetProcessHandleCount.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+        assert k.GetProcessHandleCount(k.GetCurrentProcess(), ctypes.byref(n))
+        return n.value
+    return len(os.listdir('/proc/self/fd' if os.path.isdir('/proc/self/fd') else '/dev/fd'))
+
+
 def test_inherited_pipe_does_not_hang_cleanup(swarm):
-    swarm.mode('grandchild')
-    start = time.monotonic()
-    err = swarm.fail('program.check', 'process', timeout=20)
-    assert 'pipe_held' in str(err) and time.monotonic() - start < 12
+    swarm.mode('holder')
+    try:
+        start = time.monotonic()
+        err = swarm.fail('program.check', 'process', timeout=20)
+        assert 'pipe_held' in str(err) and time.monotonic() - start < 12
+    finally:
+        reap_holders(swarm)
+
+
+def test_persistent_pipe_holder_does_not_accumulate_readers_or_handles(swarm):
+    """B1-P2-02: a descendant that keeps the inherited pipes open after the direct child exits."""
+    swarm.mode('holder')
+    try:
+        swarm.fail('program.check', 'process', timeout=20)           # warm-up: lazy imports, first handles
+        threads, handles = threading.active_count(), handle_count()
+        for _ in range(4):
+            assert 'pipe_held' in str(swarm.fail('program.check', 'process', timeout=20))
+        assert len(holders(swarm)) == 5                              # five real holders were created
+        assert threading.active_count() <= threads, 'reader threads accumulated'
+        assert handle_count() <= handles + 2, 'process handles accumulated'
+    finally:
+        reap_holders(swarm)
 
 
 def test_unauthorized_write_by_read_only_operation_is_ambiguous(swarm):
@@ -779,3 +836,113 @@ def test_git_directory_must_hold_git(world, tmp_path):
             v.invoke(world.runtime, world.project, 'program.check', world.args('program.check'),
                      authority=world.authority, git_dir=d)
         assert e.value.kind == 'runtime'
+
+
+# ----------------------------------------------------------------------------- B1-P2-01 result schemas
+REPORT = dict(state='report_ready', head=HEAD, verified_head=HEAD, ref='controller-ref', children_terminal=True,
+              draft=True, merged=False, merge_commit=None, target_tip='b' * 40, ancestor_verified=False)
+
+
+def ready(world, op):
+    """Untampered setup for `op`; returns the extra run() arguments."""
+    if op in ('identity.verify', 'program.resume', 'lifecycle.attach', 'lifecycle.reconcile'):
+        world.prepare()
+    if op == 'lifecycle.reconcile':
+        world.run('lifecycle.attach')
+        return dict(observations=world.obs(t1=REPORT))
+    return context_args(world) if op == 'task_context.validate' else {}
+
+
+def tamper(monkeypatch, mutate):
+    """Rewrite only the operational CLI's stdout (never the identity probe) after it really ran."""
+    real = v._run
+
+    def run(argv, cwd, env, timeout):
+        code, out, err, problem = real(argv, cwd, env, timeout)
+        if '-m' in argv and not argv[argv.index('-m') + 1].endswith('invocation'):
+            doc = json.loads(out)
+            out = json.dumps(mutate(doc) or doc).encode()
+        return code, out, err, problem
+    monkeypatch.setattr(v, '_run', run)
+
+
+def setkey(**kw):
+    return lambda r: r.update(kw)
+
+
+def setin(key, **kw):
+    return lambda r: r[key].update(kw)
+
+
+def drop(key):
+    return lambda r: r.pop(key)
+
+
+def task(**kw):
+    return lambda r: r['tasks']['t1'].update(kw)
+
+
+IDENTITY = [
+    ('null_identity', setkey(project_id=None, repository=None, task=None)), ('null_approval', setkey(approval=None)),
+    ('null_checkout', setkey(checkout=None)), ('approval_extra', setin('approval', x=1)),
+    ('approval_ref', setin('approval', ref='user-t9-9')), ('approval_status', setin('approval', status='revoked')),
+    ('approval_bool_revision', setin('approval', revision=True)), ('approval_missing', lambda r: r['approval'].pop('ref')),
+    ('repository', setkey(repository=dict(host='github.com', name='evil/other'))),
+    ('project', setkey(project_id='proj-other')), ('task', setkey(task='t2')), ('extra', setkey(extra=1)),
+    ('checkout_root', setin('checkout', root='/elsewhere')), ('checkout_origin', setin('checkout', origin=None)),
+    ('authorizes', setkey(authorizes=True)), ('merge', setkey(merge_authorized=1)),
+]
+PROGRAM = [
+    ('entry_scalar', lambda r: r['tasks'].update(t1=5)), ('entry_none', lambda r: r['tasks'].update(t2=None)),
+    ('entry_no_explanation', lambda r: r['tasks']['t1'].pop('explanation')), ('entry_extra', task(x=1)),
+    ('entry_state', task(state='bogus')), ('entry_explanation_str', task(explanation='x')),
+    ('entry_explanation_items', task(explanation=[1])), ('entry_explanation_empty', task(explanation=[])),
+    ('extra_task', lambda r: r['tasks'].update(zz=dict(state='eligible', explanation=['eligible']))),
+    ('missing_task', lambda r: r['tasks'].pop('t2')), ('tasks_list', setkey(tasks=[])),
+    ('plan_hash', setkey(plan_hash='0' * 64)), ('task_unknown', setkey(task='zz')),
+    ('explanation_type', setkey(explanation=['x'])), ('extra', setkey(extra=1)), ('authority', setkey(merge_authorized=None)),
+]
+CASES = (
+    [('identity.check', n, f) for n, f in IDENTITY]
+    + [('identity.verify', n, f) for n, f in IDENTITY + [('sha', setkey(binding_sha256='0' * 64)),
+                                                         ('sha_missing', drop('binding_sha256'))]]
+    + [(op, n, f) for op in ('program.check', 'program.next', 'program.resume') for n, f in PROGRAM]
+    + [('task_context.validate', n, f) for n, f in [
+        ('context_null', setkey(context=None)), ('context_empty', setkey(context={})),
+        ('context_head', setin('context', head='b' * 40)), ('context_task', setin('context', task_id='t2')),
+        ('context_extra', setin('context', zz=1)), ('context_field', lambda r: r['context'].pop('objective')),
+        ('hash', setkey(context_hash='0' * 64)), ('hash_type', setkey(context_hash=1)), ('extra', setkey(extra=1)),
+        ('authorizes', setkey(authorizes=None))]]
+    + [('lifecycle.prepare', n, f) for n, f in [
+        ('intent', setkey(intent='other')), ('action', setkey(action='blocked')), ('extra', setkey(extra=1)),
+        ('dispatch', setkey(dispatch=0)), ('missing', drop('intent'))]]
+    + [('lifecycle.attach', n, f) for n, f in [
+        ('task_key', setkey(task_key='t2')), ('refs', setkey(refs={})), ('refs_value', setin('refs', task='other')),
+        ('lifecycle', setkey(lifecycle='planned')), ('extra', setkey(extra=1)), ('events', setkey(events=None))]]
+    + [('lifecycle.reconcile', n, f) for n, f in [
+        ('slot', setkey(slot='free')), ('action', setkey(action='go')), ('reason', setkey(reason=5)),
+        ('extra', setkey(extra=1)), ('state', setkey(state='bogus')), ('no_state', drop('state')),
+        ('merge', setkey(merge_authorized=True)), ('task', setkey(task='t1')),
+        ('variant', lambda r: r.update(action='continue', slot='retired', task=5))]])
+
+
+@pytest.mark.parametrize('op,name,mutate', CASES, ids=[f'{o}-{n}' for o, n, _ in CASES])
+def test_malformed_nested_results_are_output_errors(world, monkeypatch, op, name, mutate):
+    extra = ready(world, op)
+    tamper(monkeypatch, mutate)
+    world.fail(op, 'output', **extra)
+
+
+@pytest.mark.parametrize('op', ['program.check', 'program.next', 'program.resume', 'identity.check',
+                                'identity.verify', 'task_context.validate', 'lifecycle.prepare',
+                                'lifecycle.attach', 'lifecycle.reconcile'])
+def test_genuine_results_pass_the_closed_schemas(world, op):
+    assert world.run(op, **ready(world, op))['operation'] == op
+
+
+def test_reconcile_continue_and_stop_variants_validate(world):
+    world.prepare()
+    world.run('lifecycle.attach')
+    done = dict(REPORT, state='delivered', draft=False, merged=True, merge_commit='c' * 40, ancestor_verified=True)
+    r = world.run('lifecycle.reconcile', observations=world.obs(t1=done))['result']
+    assert r['slot'] == 'retired' and r['action'] in ('continue', 'stop') and r['merge_authorized'] is False

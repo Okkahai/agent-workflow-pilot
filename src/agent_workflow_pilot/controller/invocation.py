@@ -29,13 +29,12 @@ import re
 import shutil
 import subprocess
 import sys
-import threading
 import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from agent_workflow_pilot import graph, handoff
+from agent_workflow_pilot import graph, handoff, task_context
 from agent_workflow_pilot.controller import checkpoint, identity, program
 
 OUT_LIMIT = handoff.MAX_BYTES
@@ -120,21 +119,6 @@ def package_digest(root):
 
 
 # --------------------------------------------------------------------------- process
-def _pump(stream, limit, sink, over):
-    try:
-        while True:
-            chunk = stream.read(65536)
-            if not chunk:
-                return
-            if len(sink) + len(chunk) > limit:
-                sink.extend(chunk[:max(limit - len(sink), 0)])
-                over.set()
-                return
-            sink.extend(chunk)
-    except (OSError, ValueError):
-        return
-
-
 def _kill(proc):
     try:
         if os.name == 'nt':
@@ -151,11 +135,36 @@ def _kill(proc):
         pass
 
 
-def _run(argv, cwd, env, timeout):
-    """Bounded collection DURING reads; returns (code, stdout, stderr, problem).
+def _drain(streams, sinks, limits):
+    """One nonblocking pass over the open pipes. Returns True when a limit was exceeded."""
+    over = False
+    for s in list(streams):
+        try:
+            chunk = s.read(65536)
+        except BlockingIOError:
+            continue
+        except (OSError, ValueError):
+            streams.discard(s)
+            continue
+        if chunk is None:
+            continue
+        if not chunk:
+            streams.discard(s)
+            continue
+        room = limits[s] - len(sinks[s])
+        sinks[s].extend(chunk[:room])
+        over = over or len(chunk) > room
+    return over
 
-    problem is None, 'timeout', 'output_limit', 'pipe_held' (a descendant kept a pipe open
-    after exit) or 'unreaped'. Best-effort tree kill; no tree-isolation or exactly-once claim.
+
+def _run(argv, cwd, env, timeout):
+    """Bounded collection by NONBLOCKING POLLING in the caller's thread; returns (code, stdout, stderr, problem).
+
+    problem is None, 'timeout', 'output_limit', 'pipe_held' (a descendant kept a pipe open after the
+    direct child exited) or 'unreaped'. No reader threads exist, so nothing can outlive the call; both
+    pipe ends are always closed here (os.set_blocking supports pipes on Windows since Python 3.12).
+    Best-effort tree kill only: after the direct child is gone a Windows descendant cannot be found by
+    PID tree, so a surviving holder is NOT guaranteed to be stopped. No tree-isolation claim.
     """
     try:
         proc = subprocess.Popen(argv, shell=False, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
@@ -163,35 +172,46 @@ def _run(argv, cwd, env, timeout):
                                 start_new_session=(os.name != 'nt'))
     except (OSError, ValueError):
         raise InvocationError('process', 'could not start runtime') from None
-    out, err, over = bytearray(), bytearray(), threading.Event()
-    threads = [threading.Thread(target=_pump, args=(proc.stdout, OUT_LIMIT, out, over), daemon=True),
-               threading.Thread(target=_pump, args=(proc.stderr, ERR_LIMIT, err, over), daemon=True)]
-    for t in threads:
-        t.start()
-    problem, deadline = None, time.monotonic() + timeout
-    while proc.poll() is None:
-        if over.is_set():
-            problem = 'output_limit'
-        elif time.monotonic() >= deadline:
-            problem = 'timeout'
-        if problem:
-            _kill(proc)
-            break
-        over.wait(0.02)
+    streams = {proc.stdout, proc.stderr}
+    sinks = {proc.stdout: bytearray(), proc.stderr: bytearray()}
+    limits = {proc.stdout: OUT_LIMIT, proc.stderr: ERR_LIMIT}
+    problem = None
     try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        problem = problem or 'unreaped'
-    for t in threads:
-        t.join(2 if problem is None else 1)
-    if any(t.is_alive() for t in threads):
-        problem = problem or 'pipe_held'   # leaked daemon readers end when the holder exits
-    else:
+        try:
+            for s in streams:
+                os.set_blocking(s.fileno(), False)
+        except OSError:
+            _kill(proc)
+            raise InvocationError('process', 'could not configure child pipes') from None
+        start = time.monotonic()
+        deadline, exited = start + timeout, None
+        while True:
+            if _drain(streams, sinks, limits):
+                problem = 'output_limit'
+            now = time.monotonic()
+            if problem is None and proc.poll() is None and now >= deadline:
+                problem = 'timeout'
+            if problem is None and proc.poll() is not None:
+                exited = exited or now
+                if not streams:
+                    break
+                if now - exited >= 2:      # grace for the last bytes, then a descendant is holding a pipe
+                    problem = 'pipe_held'
+            if problem:
+                _kill(proc)                # best effort; also run for pipe_held (works where the group persists)
+                break
+            time.sleep(0.01)
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            problem = problem or 'unreaped'
+    finally:
         for s in (proc.stdout, proc.stderr):
-            s.close()
-    if over.is_set():
-        problem = problem or 'output_limit'
-    return proc.returncode, bytes(out), bytes(err), problem
+            try:
+                s.close()
+            except OSError:
+                pass
+    return proc.returncode, bytes(sinks[proc.stdout]), bytes(sinks[proc.stderr]), problem
 
 
 def _env(git_dir, tmp):
@@ -482,36 +502,136 @@ def _build(op, a, paths, doc, call):
 
 
 # --------------------------------------------------------------------------- results
-_KEYS = {
-    'program': {'plan_hash', 'task', 'tasks', 'explanation', 'merge_authorized'},
-    'identity': {'authorizes', 'merge_authorized', 'project_id', 'repository', 'task', 'approval', 'checkout'},
-    'task_context': {'authorizes', 'context_hash', 'context'},
-    'lifecycle.prepare': {'action', 'intent', 'dispatch'},
-}
+# Closed, operation-specific shapes bound to the controller's own request. Child output is DATA: a
+# well-formed result never grants anything (authority-shaped fields must be literally false) and is
+# only compared with what the controller itself asked for and observed. Existing strict validators
+# (identity._repo, checkpoint.validate, handoff.problems_for) are reused, never loosened.
+STATES = {'eligible', 'blocked', 'running', 'report_ready', 'delivered'}
+ID_KEYS = {'authorizes', 'merge_authorized', 'project_id', 'repository', 'task', 'approval', 'checkout'}
 
 
-def _validate_result(op, r):
-    module = op.split('.')[0]
-    if op == 'lifecycle.attach':
-        try:
-            checkpoint.validate(r)
-        except ValueError:
-            _bad('result is not a valid delivery checkpoint', 'output')
-        ok = r['lifecycle'] == 'building'
-    elif op == 'lifecycle.reconcile':
-        ok = r.get('action') in ('blocked', 'continue', 'stop', 'awaiting_authorization') \
-            and r.get('slot') in ('held', 'retired') and 'merge_authorized' in r
+def _need(ok):
+    if not ok:
+        raise ValueError('result schema')
+
+
+def _str(value, high=1000):
+    return isinstance(value, str) and 0 < len(value) <= high
+
+
+def _keys(r, keys):
+    _need(isinstance(r, dict) and set(r) == keys)
+
+
+def _program(r, c):
+    _keys(r, {'plan_hash', 'task', 'tasks', 'explanation', 'merge_authorized'})
+    _need(r['plan_hash'] == c['plan_hash'] and _str(r['explanation']))
+    _need(r['task'] is None or r['task'] in c['ids'])
+    _need(isinstance(r['tasks'], dict) and set(r['tasks']) == c['ids'])
+    for e in r['tasks'].values():
+        _keys(e, {'state', 'explanation'})
+        _need(e['state'] in STATES and isinstance(e['explanation'], list) and e['explanation']
+              and all(_str(x) for x in e['explanation']))
+    if c['op'] == 'program.resume':
+        _need(r['task'] == c['task'])
+
+
+def _identity(r, c):
+    verify = c['op'] == 'identity.verify'
+    _keys(r, ID_KEYS | ({'binding_sha256'} if verify else set()))
+    exp, task = c['exp'], c['task']
+    approval = exp['approvals'][task]
+    _need(r['project_id'] == exp['project_id'] and r['task'] == task)
+    identity._repo(r['repository'])
+    _need(identity._same_repo(r['repository'], exp['repository']))
+    a = r['approval']
+    _keys(a, {'ref', 'source', 'status', 'revision'})
+    _need(a == dict(ref=approval['ref'], source=approval['source'], status='valid', revision=approval['revision'])
+          and type(a['revision']) is int)
+    seen = r['checkout']
+    _keys(seen, {'root', 'common_dir', 'origin'})
+    identity._repo(seen['origin'])
+    _need(identity._same_repo(seen['origin'], exp['repository'])
+          and identity._same(seen['root'], c['paths']['checkout'])
+          and identity._same(seen['common_dir'], c['paths']['common_dir']))
+    if verify:
+        _need(r['binding_sha256'] == hashlib.sha256(c['binding'].read_bytes()).hexdigest())
+
+
+def _context(r, c):
+    _keys(r, {'authorizes', 'context_hash', 'context'})
+    ctx, a = r['context'], c['args']
+    _keys(ctx, task_context.FIELDS)
+    _need(r['context_hash'] == hashlib.sha256(task_context.canonical(ctx)).hexdigest())
+    _need(ctx['schema'] == task_context.SCHEMA and ctx['head'] == a['current_head']
+          and ctx['task_id'] == a['task_id'] and ctx['repo'] == a['repo'] and ctx['plan_hash'] == c['plan_hash'])
+    for key in ('objective', 'owner', 'routing', 'next_action'):
+        _need(_str(ctx[key]))
+    for key in ('scope', 'exclusions', 'acceptance', 'risks', 'decisions'):
+        _need(isinstance(ctx[key], list) and ctx[key] and all(_str(x) for x in ctx[key]))
+    spec = next(t for t in c['doc']['tasks'] if t['id'] == a['task_id'])
+    for key in ('depends_on', 'owns'):
+        _need(ctx[key] == spec[key])
+    _need(isinstance(ctx['context'], list) and ctx['context'])
+    for ref in [ctx['spec'], *ctx['context']]:
+        _keys(ref, {'path', 'sha256'})
+        _need(_str(ref['path']) and HEX64.fullmatch(str(ref['sha256'])))
+    _need(ctx['spec']['path'] == (Path(c['plan_path']).parent / spec['spec']).resolve()
+          .relative_to(c['paths']['checkout']).as_posix())
+    _need(isinstance(ctx['handoff'], dict) and not handoff.problems_for(ctx['handoff'], a['current_head']))
+
+
+def _prepare(r, c):
+    _keys(r, {'action', 'intent', 'dispatch'})
+    _need(r['action'] == 'reconcile_native_intent' and r['intent'] == c['args']['intent'])
+
+
+def _attach(r, c):
+    checkpoint.validate(r)
+    _need(r == checkpoint.load(c['delivery']) and r['task_key'] == c['task'] and r['lifecycle'] == 'building')
+    _need(all(r['refs'].get(k) == v for k, v in c['args']['refs'].items()))
+
+
+def _reconcile(r, c):
+    _need(isinstance(r, dict) and r.get('slot') in ('held', 'retired'))
+    evidence = c['args']['observations']['tasks'].get(c['task'])
+    if r['slot'] == 'retired':      # delivered: next selection (or stop) from the same observations
+        _keys(r, {'action', 'task', 'slot', 'merge_authorized'})
+        _need(isinstance(evidence, dict) and evidence.get('state') == 'delivered')
+        _need((r['action'], r['task'] is None) in (('stop', True), ('continue', False)))
+        _need(r['task'] is None or r['task'] in c['args']['scope'])
+    elif 'state' in r:
+        _keys(r, {'action', 'state', 'slot', 'reason', 'merge_authorized'})
+        _need(isinstance(evidence, dict) and r['state'] == evidence.get('state') and _str(r['reason']))
+        _need(r['action'] == ('awaiting_authorization' if r['state'] == 'report_ready' else 'blocked'))
     else:
-        ok = (_KEYS.get(op) or _KEYS[module]) <= set(r)
-        if op == 'lifecycle.prepare':
-            ok = ok and r['action'] == 'reconcile_native_intent' and isinstance(r['intent'], str)
-        elif module == 'program':
-            ok = ok and isinstance(r['tasks'], dict) and HEX64.fullmatch(str(r['plan_hash'])) is not None \
-                and (r['task'] is None or isinstance(r['task'], str))
-        elif module == 'task_context':
-            ok = ok and HEX64.fullmatch(str(r['context_hash'])) is not None
-    # Output success is never authority: any authority-shaped field must be literally false.
-    if not ok or any(k in r and r[k] is not False for k in ('authorizes', 'merge_authorized', 'dispatch')):
+        _keys(r, {'action', 'slot', 'reason', 'merge_authorized'})
+        _need(r['action'] == 'blocked' and r['slot'] == 'held' and _str(r['reason']))
+
+
+_RESULTS = {'program': _program, 'identity': _identity, 'task_context': _context, 'lifecycle.prepare': _prepare,
+            'lifecycle.attach': _attach, 'lifecycle.reconcile': _reconcile}
+
+
+def _result_context(op, args, doc, exp, paths, plan_path, bname):
+    c = dict(op=op, args=args, doc=doc, exp=exp, paths=paths, plan_path=plan_path, binding=None, delivery=None,
+             ids={t['id'] for t in doc['tasks']}, plan_hash=program.fingerprint(doc, Path(plan_path).parent),
+             task=args.get('task') or args.get('task_id'))
+    if bname:
+        c['binding'] = paths['state_dir'] / bname
+        if op != 'lifecycle.prepare':
+            value = program.load(c['binding'])
+            c['task'], c['delivery'] = value['task'], Path(value['delivery'])
+    return c
+
+
+def _validate_result(op, r, build):
+    """`build` is a zero-argument callable producing the request context (kept lazy so any failure is 'output')."""
+    try:
+        (_RESULTS.get(op) or _RESULTS[op.split('.')[0]])(r, build())
+        # Output success is never authority: authority-shaped fields must be literally false when present.
+        _need(all(r[k] is False for k in ('authorizes', 'merge_authorized', 'dispatch') if k in r))
+    except (ValueError, TypeError, KeyError, AttributeError, OSError, StopIteration):
         _bad('operation result violates the fixed output schema', 'output')
     return r
 
@@ -574,8 +694,9 @@ def invoke(runtime, project, operation, args, *, authority, git_dir, cwd=None, t
                 _bad('plan must be a repository-relative path')
             plan_arg = str(paths['checkout'] / plan_arg)
         doc = _plan(paths, plan_arg)
+        plan_path = str(_real(plan_arg))
         try:
-            argv_tail, tasks, _, writes = _build(operation, args, paths, doc, call)
+            argv_tail, tasks, bname, writes = _build(operation, args, paths, doc, call)
         except (ValueError, TypeError, KeyError, AttributeError):
             raise InvocationError('invalid_request', 'operation arguments are invalid') from None
         exp = _authority(project, paths, authority, tasks)
@@ -605,7 +726,8 @@ def invoke(runtime, project, operation, args, *, authority, git_dir, cwd=None, t
             ambiguous = bool(changed)   # a stateful rejection that wrote nothing is clean
             message = 'task context rejected' if module == 'task_context' else f'exit {code}: ' + _diagnostic(err, redact)
             raise InvocationError('operation' if code == 1 else 'process', message, ambiguous)
-        result = _validate_result(operation, _json(out, 'operation result'))
+        result = _validate_result(operation, _json(out, 'operation result'),
+                                  lambda: _result_context(operation, args, doc, exp, paths, plan_path, bname))
         ambiguous = False
         return dict(operation=operation, result=result, state_changes=sorted(changed), read_only=not stateful,
                     runtime=facts, authorizes=False, dispatch=False, merge_authorized=False)
