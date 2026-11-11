@@ -118,7 +118,7 @@ def with_milestone(value, index=0):
 
 def test_baseline_fingerprint_unchanged_for_unchanged_inputs():
     a = plan()
-    a['tasks'] = [t for t in a['tasks'] if t['id'] != 'a2']
+    a['tasks'] = [t for t in a['tasks'] if t['id'] not in ('a2', 'b1')]   # later roadmap entries
     a['revision'] = BASELINE_REVISION
     assert p.fingerprint(a, ROOT) == BASELINE_ROADMAP_FINGERPRINT
 

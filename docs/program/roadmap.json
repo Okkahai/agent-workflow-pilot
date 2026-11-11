@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": "a2-approved-2026-11-10",
+  "revision": "b1-approved-2026-11-11",
   "tasks": [
     {
       "id": "m1-core",
@@ -293,6 +293,30 @@
         "docs/readiness/routing-gap-register.md"
       ],
       "spec": "tasks/a2.md"
+    },
+    {
+      "id": "b1",
+      "title": "Trusted controller invocation boundary",
+      "milestone": "B1",
+      "kind": "code",
+      "approved": true,
+      "decision": true,
+      "priority": 0,
+      "depends_on": [
+        "a2",
+        "pr14"
+      ],
+      "owns": [
+        "src/agent_workflow_pilot/controller/invocation.py",
+        "tests/test_invocation.py",
+        "docs/program/invocation.md",
+        "docs/program/README.md",
+        "docs/program/roadmap.json",
+        "docs/program/tasks/b1.md",
+        "docs/plans/universal-modernization/b1-trusted-invocation.md",
+        "docs/readiness/routing-gap-register.md"
+      ],
+      "spec": "tasks/b1.md"
     }
   ]
 }
