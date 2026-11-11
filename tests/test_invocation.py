@@ -235,9 +235,7 @@ def swarm(tmp_path, stub):
     w = World(tmp_path, ALT, stub)
     w.mode = lambda m: (w.root / 'ops' / 'stub-mode.txt').write_text(m)
     doc = p.load(w.plan)
-    (w.root / 'ops' / 'stub-ok.json').write_text(json.dumps(dict(
-        plan_hash=p.fingerprint(doc, w.plan.parent), task=None, explanation='x', merge_authorized=False,
-        tasks={t['id']: dict(state='eligible', explanation=['eligible']) for t in doc['tasks']})))
+    (w.root / 'ops' / 'stub-ok.json').write_text(json.dumps(p.select(doc, w.plan.parent)))   # genuine check
     return w
 
 
@@ -946,3 +944,168 @@ def test_reconcile_continue_and_stop_variants_validate(world):
     done = dict(REPORT, state='delivered', draft=False, merged=True, merge_commit='c' * 40, ancestor_verified=True)
     r = world.run('lifecycle.reconcile', observations=world.obs(t1=done))['result']
     assert r['slot'] == 'retired' and r['action'] in ('continue', 'stop') and r['merge_authorized'] is False
+
+
+# ----------------------------------------------------------------------------- B1-P2-01 (remainder) / B1-P2-03
+def rehash(mutate):
+    """Mutate the nested context AND recompute context_hash: the hash alone must not be trusted."""
+    def run(r):
+        mutate(r['context'])
+        r['context_hash'] = hashlib.sha256(tc.canonical(r['context'])).hexdigest()
+    return run
+
+
+def handoff_of(**kw):
+    return lambda ctx: ctx['handoff'].update(kw)
+
+
+REHASHED = [
+    ('numeric_digest', rehash(lambda c: c['context'][0].update(sha256=int('1' * 64)))),
+    ('numeric_spec_digest', rehash(lambda c: c['spec'].update(sha256=int('1' * 64)))),
+    ('wrong_digest', rehash(lambda c: c['context'][0].update(sha256='0' * 64))),
+    ('escaping_path', rehash(lambda c: c['context'][0].update(path='../outside.md'))),
+    ('absolute_path', rehash(lambda c: c['context'][0].update(path='/etc/hosts'))),
+    ('missing_source', rehash(lambda c: c['context'][0].update(path='ops/tasks/none.md'))),
+    ('duplicate_reference', rehash(lambda c: c['context'].append(dict(c['context'][0])))),
+    ('other_spec', rehash(lambda c: c['spec'].update(path='ops/tasks/t2.md',
+                                                     sha256=hashlib.sha256(b'spec two\n').hexdigest()))),
+    ('handoff_task', rehash(handoff_of(task_id='t2'))),
+    ('handoff_repo', rehash(handoff_of(repo='o/other'))),
+    ('stale_plan_hash', rehash(lambda c: c.update(plan_hash='0' * 64))),
+    ('depends_on', rehash(lambda c: c.update(depends_on=['t2']))),
+    ('differs_from_input_file', rehash(lambda c: c.update(objective='a different objective'))),
+]
+
+
+@pytest.mark.parametrize('name,mutate', REHASHED, ids=[n for n, _ in REHASHED])
+def test_context_result_revalidated_with_recomputed_hash(world, monkeypatch, name, mutate):
+    extra = ready(world, 'task_context.validate')
+    tamper(monkeypatch, mutate)
+    world.fail('task_context.validate', 'output', **extra)
+
+
+@pytest.mark.parametrize('op', ['program.check', 'program.next'])
+@pytest.mark.parametrize('name,mutate', [
+    ('blocked_selected', setkey(task='t2')), ('none_selected', setkey(task=None)),
+    ('flipped_state', task(state='running', explanation=['running'])),
+    ('blocked_made_eligible', lambda r: r['tasks']['t2'].update(state='eligible', explanation=['eligible'])),
+    ('summary', setkey(explanation='resume'))])
+def test_program_selection_must_equal_deterministic_selection(world, monkeypatch, op, name, mutate):
+    """t2 depends on t1: a known dependency-blocked task cannot be claimed selected; nothing else may drift."""
+    tamper(monkeypatch, mutate)
+    world.fail(op, 'output')
+
+
+def test_resume_selection_must_equal_deterministic_selection(world, monkeypatch):
+    world.prepare()
+    tamper(monkeypatch, lambda r: r.update(task='t2'))
+    world.fail('program.resume', 'output')
+    monkeypatch.undo()
+    assert world.run('program.resume')['result']['task'] == 't1'
+
+
+def test_reconcile_next_selection_must_equal_deterministic_selection(world, monkeypatch):
+    world.prepare()
+    world.run('lifecycle.attach')
+    done = dict(REPORT, state='delivered', draft=False, merged=True, merge_commit='c' * 40, ancestor_verified=True)
+    both = dict(observations=world.obs(t1=done), scope=['t1', 't2'])
+    r = world.run('lifecycle.reconcile', **both)['result']
+    assert (r['action'], r['task']) == ('continue', 't2')                    # genuine: t2 became eligible
+    for name, mutate in [('stop', lambda r: r.update(action='stop', task=None)),
+                         ('delivered_task', lambda r: r.update(action='continue', task='t1'))]:
+        tamper(monkeypatch, mutate)
+        with pytest.raises(v.InvocationError) as e:
+            world.run('lifecycle.reconcile', **both)
+        assert e.value.kind == 'output', name
+        monkeypatch.undo()
+    only = dict(observations=world.obs(t1=done), scope=['t1'])               # scope excludes t2 -> genuine stop
+    assert world.run('lifecycle.reconcile', **only)['result']['action'] == 'stop'
+    tamper(monkeypatch, lambda r: r.update(action='continue', task='t1'))
+    with pytest.raises(v.InvocationError):
+        world.run('lifecycle.reconcile', **only)
+
+
+class Faulty:
+    """Real pipe whose read fails with `error` once data has been returned (fault AFTER valid bytes)."""
+    def __init__(self, inner, error):
+        self.inner, self.error, self.got = inner, error, False
+
+    def fileno(self):
+        return self.inner.fileno()
+
+    @property
+    def closed(self):
+        return self.inner.closed
+
+    def close(self):
+        self.inner.close()
+
+    def read(self, n):
+        if self.got:
+            raise self.error
+        data = self.inner.read(n)
+        self.got = bool(data)
+        return data
+
+
+def inject(monkeypatch, error, stream='stdout'):
+    made = []
+    real = subprocess.Popen
+
+    def popen(argv, *a, **kw):
+        proc = real(argv, *a, **kw)
+        inner = {'stdout': proc.stdout, 'stderr': proc.stderr}
+        if '-m' in argv and not argv[argv.index('-m') + 1].endswith('invocation'):
+            setattr(proc, stream, Faulty(inner[stream], error))
+        made.append(inner)
+        return proc
+    monkeypatch.setattr(v.subprocess, 'Popen', popen)
+    return made
+
+
+def all_closed(made):
+    return bool(made) and all(pipe.closed for pair in made for pipe in pair.values() if pipe is not None)
+
+
+@pytest.mark.parametrize('error', [OSError(5, 'injected read failure'), ValueError('injected')])
+def test_pipe_read_error_after_valid_output_is_a_process_failure(swarm, monkeypatch, error):
+    swarm.mode('ok')
+    made = inject(monkeypatch, error)
+    err = swarm.fail('program.check', 'process')
+    assert 'read_error' in str(err) and not err.ambiguous            # read-only, state unchanged: not ambiguous
+    assert all_closed(made) and not (swarm.state / v.LOCK).exists()
+
+
+def test_stateful_pipe_read_error_retains_lock_and_state(swarm, monkeypatch):
+    swarm.mode('ok')                                                   # valid JSON, exit 0, no state writes
+    made = inject(monkeypatch, OSError(5, 'injected read failure'))
+    err = swarm.fail('lifecycle.prepare', 'process')
+    assert err.ambiguous and 'read_error' in str(err) and 'state retained' in str(err)
+    assert (swarm.state / v.LOCK).exists() and all_closed(made)
+    monkeypatch.undo()
+    swarm.fail('lifecycle.prepare', 'state')                           # blocked, never auto-reset
+
+
+def test_stderr_read_error_is_also_a_process_failure(swarm, monkeypatch):
+    swarm.mode('reject')
+    made = inject(monkeypatch, OSError(5, 'injected read failure'), stream='stderr')
+    assert 'read_error' in str(swarm.fail('program.check', 'process')) and all_closed(made)
+
+
+def test_pipe_setup_failure_fails_closed_and_reaps(swarm, monkeypatch):
+    made = []
+    real = subprocess.Popen
+
+    def popen(argv, *a, **kw):
+        made.append(real(argv, *a, **kw))
+        return made[-1]
+    monkeypatch.setattr(v.subprocess, 'Popen', popen)
+
+    def fail(*a):
+        raise OSError(22, 'injected')
+    monkeypatch.setattr(v.os, 'set_blocking', fail)
+    code, out, err, problem = v._run([sys.executable, '-c', 'import time; time.sleep(60)'], str(swarm.root),
+                                      dict(os.environ), 20)
+    assert problem == 'setup_error' and out == b''             # invoke() maps any problem to a process failure
+    child = made[0]                                             # made[1:] are the taskkill helpers
+    assert child.poll() is not None and child.stdout.closed and child.stderr.closed

@@ -136,15 +136,15 @@ def _kill(proc):
 
 
 def _drain(streams, sinks, limits):
-    """One nonblocking pass over the open pipes. Returns True when a limit was exceeded."""
+    """One nonblocking pass over the open pipes. Returns True when a limit was exceeded.
+
+    EOF (empty read) and BlockingIOError/None (no data yet) are the only benign outcomes. Any other
+    OSError/ValueError is a COLLECTION FAILURE and propagates: it must never look like EOF."""
     over = False
     for s in list(streams):
         try:
             chunk = s.read(65536)
         except BlockingIOError:
-            continue
-        except (OSError, ValueError):
-            streams.discard(s)
             continue
         if chunk is None:
             continue
@@ -161,8 +161,9 @@ def _run(argv, cwd, env, timeout):
     """Bounded collection by NONBLOCKING POLLING in the caller's thread; returns (code, stdout, stderr, problem).
 
     problem is None, 'timeout', 'output_limit', 'pipe_held' (a descendant kept a pipe open after the
-    direct child exited) or 'unreaped'. No reader threads exist, so nothing can outlive the call; both
-    pipe ends are always closed here (os.set_blocking supports pipes on Windows since Python 3.12).
+    direct child exited), 'read_error' / 'setup_error' (pipe configuration or collection failed: the
+    capture is incomplete and is never accepted) or 'unreaped'. No reader threads exist, so nothing
+    can outlive the call; both pipe ends are always closed here (os.set_blocking supports pipes on Windows since Python 3.12).
     Best-effort tree kill only: after the direct child is gone a Windows descendant cannot be found by
     PID tree, so a surviving holder is NOT guaranteed to be stopped. No tree-isolation claim.
     """
@@ -180,14 +181,16 @@ def _run(argv, cwd, env, timeout):
         try:
             for s in streams:
                 os.set_blocking(s.fileno(), False)
-        except OSError:
-            _kill(proc)
-            raise InvocationError('process', 'could not configure child pipes') from None
+        except (OSError, ValueError):
+            problem = 'setup_error'
         start = time.monotonic()
         deadline, exited = start + timeout, None
-        while True:
-            if _drain(streams, sinks, limits):
-                problem = 'output_limit'
+        while problem is None:
+            try:
+                if _drain(streams, sinks, limits):
+                    problem = 'output_limit'
+            except Exception:                  # collection failure is NOT EOF: incomplete capture, never success
+                problem = 'read_error'
             now = time.monotonic()
             if problem is None and proc.poll() is None and now >= deadline:
                 problem = 'timeout'
@@ -198,18 +201,21 @@ def _run(argv, cwd, env, timeout):
                 if now - exited >= 2:      # grace for the last bytes, then a descendant is holding a pipe
                     problem = 'pipe_held'
             if problem:
-                _kill(proc)                # best effort; also run for pipe_held (works where the group persists)
                 break
             time.sleep(0.01)
+        if problem:
+            _kill(proc)                    # best effort; also for pipe_held (works where the group persists)
+    finally:
+        if proc.poll() is None:            # any exit path (including unexpected errors): bounded kill, wait, close
+            _kill(proc)
         try:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             problem = problem or 'unreaped'
-    finally:
         for s in (proc.stdout, proc.stderr):
             try:
                 s.close()
-            except OSError:
+            except (OSError, ValueError):
                 pass
     return proc.returncode, bytes(sinks[proc.stdout]), bytes(sinks[proc.stderr]), problem
 
@@ -524,16 +530,11 @@ def _keys(r, keys):
 
 
 def _program(r, c):
-    _keys(r, {'plan_hash', 'task', 'tasks', 'explanation', 'merge_authorized'})
-    _need(r['plan_hash'] == c['plan_hash'] and _str(r['explanation']))
-    _need(r['task'] is None or r['task'] in c['ids'])
-    _need(isinstance(r['tasks'], dict) and set(r['tasks']) == c['ids'])
-    for e in r['tasks'].values():
-        _keys(e, {'state', 'explanation'})
-        _need(e['state'] in STATES and isinstance(e['explanation'], list) and e['explanation']
-              and all(_str(x) for x in e['explanation']))
-    if c['op'] == 'program.resume':
-        _need(r['task'] == c['task'])
+    """The child's selection must EQUAL the deterministic selection recomputed here from the same
+    validated plan, observations and (for resume) binding. A valid-looking id is not enough."""
+    active = program.load(c['binding']) if c['op'] == 'program.resume' else None
+    _need(r == program.select(c['doc'], Path(c['plan_path']).parent, copy.deepcopy(c['args'].get('observations')),
+                              active))
 
 
 def _identity(r, c):
@@ -559,26 +560,15 @@ def _identity(r, c):
 
 
 def _context(r, c):
+    """Re-run the real task_context.reconstruct (sources, hashes, handoff identity, roadmap relationships)
+    against the controller's OWN expected root/plan/head/task/repo; recomputing context_hash cannot bypass it.
+    The result must also be the context the controller asked about (the input file), byte-for-byte as data."""
     _keys(r, {'authorizes', 'context_hash', 'context'})
-    ctx, a = r['context'], c['args']
-    _keys(ctx, task_context.FIELDS)
-    _need(r['context_hash'] == hashlib.sha256(task_context.canonical(ctx)).hexdigest())
-    _need(ctx['schema'] == task_context.SCHEMA and ctx['head'] == a['current_head']
-          and ctx['task_id'] == a['task_id'] and ctx['repo'] == a['repo'] and ctx['plan_hash'] == c['plan_hash'])
-    for key in ('objective', 'owner', 'routing', 'next_action'):
-        _need(_str(ctx[key]))
-    for key in ('scope', 'exclusions', 'acceptance', 'risks', 'decisions'):
-        _need(isinstance(ctx[key], list) and ctx[key] and all(_str(x) for x in ctx[key]))
-    spec = next(t for t in c['doc']['tasks'] if t['id'] == a['task_id'])
-    for key in ('depends_on', 'owns'):
-        _need(ctx[key] == spec[key])
-    _need(isinstance(ctx['context'], list) and ctx['context'])
-    for ref in [ctx['spec'], *ctx['context']]:
-        _keys(ref, {'path', 'sha256'})
-        _need(_str(ref['path']) and HEX64.fullmatch(str(ref['sha256'])))
-    _need(ctx['spec']['path'] == (Path(c['plan_path']).parent / spec['spec']).resolve()
-          .relative_to(c['paths']['checkout']).as_posix())
-    _need(isinstance(ctx['handoff'], dict) and not handoff.problems_for(ctx['handoff'], a['current_head']))
+    a = c['args']
+    again = task_context.reconstruct(task_context.read(c['file']), c['paths']['checkout'], c['plan_path'],
+                                     current_head=a['current_head'], task_id=a['task_id'], repo=a['repo'])
+    _need(r['context'] == again['context'] and r['context_hash'] == again['context_hash']
+          and type(r['context_hash']) is str and again['authorizes'] is False)
 
 
 def _prepare(r, c):
@@ -598,8 +588,9 @@ def _reconcile(r, c):
     if r['slot'] == 'retired':      # delivered: next selection (or stop) from the same observations
         _keys(r, {'action', 'task', 'slot', 'merge_authorized'})
         _need(isinstance(evidence, dict) and evidence.get('state') == 'delivered')
-        _need((r['action'], r['task'] is None) in (('stop', True), ('continue', False)))
-        _need(r['task'] is None or r['task'] in c['args']['scope'])
+        nxt = program.select(c['doc'], Path(c['plan_path']).parent, copy.deepcopy(c['args']['observations']),
+                             scope=c['args']['scope'])['task']
+        _need(r['task'] == nxt and r['action'] == ('continue' if nxt else 'stop'))
     elif 'state' in r:
         _keys(r, {'action', 'state', 'slot', 'reason', 'merge_authorized'})
         _need(isinstance(evidence, dict) and r['state'] == evidence.get('state') and _str(r['reason']))
@@ -616,7 +607,7 @@ _RESULTS = {'program': _program, 'identity': _identity, 'task_context': _context
 def _result_context(op, args, doc, exp, paths, plan_path, bname):
     c = dict(op=op, args=args, doc=doc, exp=exp, paths=paths, plan_path=plan_path, binding=None, delivery=None,
              ids={t['id'] for t in doc['tasks']}, plan_hash=program.fingerprint(doc, Path(plan_path).parent),
-             task=args.get('task') or args.get('task_id'))
+             task=args.get('task') or args.get('task_id'), file=args.get('file'))
     if bname:
         c['binding'] = paths['state_dir'] / bname
         if op != 'lifecycle.prepare':
@@ -631,7 +622,7 @@ def _validate_result(op, r, build):
         (_RESULTS.get(op) or _RESULTS[op.split('.')[0]])(r, build())
         # Output success is never authority: authority-shaped fields must be literally false when present.
         _need(all(r[k] is False for k in ('authorizes', 'merge_authorized', 'dispatch') if k in r))
-    except (ValueError, TypeError, KeyError, AttributeError, OSError, StopIteration):
+    except (ValueError, TypeError, KeyError, AttributeError, OSError, StopIteration, RecursionError):
         _bad('operation result violates the fixed output schema', 'output')
     return r
 
