@@ -80,3 +80,7 @@ remains separately pinned. No C/D/E, adoption, package registry, runtime upgrade
 automatic authority service, scheduler/daemon or new checkpoint formats.
 Draft/report_ready is not delivered. No Ready transition or merge. Retain original task,
 worktree, PR, native refs and retry budget across corrections. Stop on essential scope blocker.
+
+## Implementation record
+
+Implemented as a Draft: `docs/program/invocation.md` holds the operation table, path domains, trust limits, unsupported-operation blockers and official-source URLs/versions/retrieval date (2026-11-11). `tests/test_invocation.py` holds the negative matrix. Not delivered until separately authorized and verified.

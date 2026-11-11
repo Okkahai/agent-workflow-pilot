@@ -144,3 +144,7 @@ Project-scoped use of these commands (`--mode project --expect FILE`) is describ
 ## A2 milestone identifiers
 
 A2 (draft, unmerged) replaces the literal M1–M5 check in `program.validate` with `program.MILESTONE`: an ASCII letter, then letters/digits with internal `-` or `_`, ending alphanumeric, 1–64 characters, matched in full (`[A-Za-z](?:[A-Za-z0-9_-]{0,62}[A-Za-z0-9])?`). Case and bytes are preserved exactly (`M1` and `m1` differ); empty, non-string, whitespace, control, path, Unicode and other punctuation values fail `validate`. Milestones are inert labels shared freely across tasks and never authorize dispatch, approval or merge. Fingerprint code and serialization are unchanged: unchanged plans keep their v1 hashes, while any milestone edit changes the plan hash and so rejects old observations, bindings and A1 approval expectations. Not included: roadmap schema v2, configurable roadmap/spec bases, checkout rebind, registry.
+
+## B1 trusted invocation boundary
+
+`controller/invocation.py` runs named, fixed-schema operations (program check/next/resume, identity check/verify, task_context validation, lifecycle prepare/attach/reconcile) from a controller-pinned installed runtime with `-I -B -m`, a neutral cwd and bounded output. Contract, path domains, trust limits and exact unsupported operations: [invocation.md](invocation.md). It authorizes nothing and never dispatches. Direct CLI use with defaulted `--plan` remains unchanged and is not multi-project safe.
