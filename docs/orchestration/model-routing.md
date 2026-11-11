@@ -1,51 +1,50 @@
 # Model routing
 
-Status: policy and protocol, observed 2026-11-05. Routing is an execution choice, not correctness evidence (engineering-standard.md). No benchmark has been run; quality claims below are hypotheses until the deferred protocol produces data.
+Status: user-approved defaults, observed 2026-11-09. Machine-readable source of truth: `harness/policies/routing-v1.json` (validated and applied by `agent_workflow_pilot.routing`, see [routing.md](routing.md)). This page explains the policy. It supersedes the 2026-11-05 text (Astra defaults, same-model review as "weaker independence", no fallback) and the 2026-11-08 local override. Both are kept only as dated evidence (see Provenance). Routing is an execution choice, never correctness evidence (engineering-standard.md).
 
 ## Rule
 
-Route from the model IDs the controller actually sees advertised in the current session via `orchestrator_capabilities`. Never route from memory, from a table in this file, or from a name that sounds similar. If a wanted ID is not advertised, say so and stop or ask; do not silently substitute (t3-runbook.md). IDs below are a dated observation, not a registry.
+Route from the capabilities the controller actually sees advertised in the current session (`orchestrator_capabilities`) and from the installed `delegate_task` schema, never from memory or from this table. Every model ID and effort value is checked against that live snapshot before use; a missing ID, effort or capability means stop or an explicit approved candidate, never a silent substitute (t3-runbook.md). A policy edit changes `policy_sha256`; recorded attempts keep the version they started under and migrating is explicit.
 
-## Observed advertisement (2026-11-05)
+## Approved defaults (policy v1)
 
-Source: `orchestrator_capabilities({})` in this session. Parent inherited `claude-sonnet-5-5`, effort `medium`, runtime `full-access`.
-
-| Provider instance | Advertised model IDs | Effort options | Child tasks |
+| Role (categories) | Primary | Approved alternative | Automatic switch |
 | --- | --- | --- | --- |
-| codex | `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6.1-terra`, `gpt-6-luna` (+4 omitted) | `reasoningEffort` low..max (`ultra` on all but luna), `serviceTier` default/priority | yes, incl. cross-provider |
-| claudeAgent | `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-fable-5-1`, `claude-haiku-5-5` (+9 omitted) | `effort` low..max, plus `ultracode` (opus, fable) and `ultrathink`; opus has `fastMode` | yes, incl. cross-provider |
-| grok, cursor, opencode, antigravity, fx, kiro, muse, pi | listed with models or none | n/a | no: provider instance disabled |
+| Program and delivery coordination (`program`, `delivery`) | Codex `gpt-6.1-sol`, `reasoningEffort=medium` | none | no |
+| Planning, architecture, standard and complex Builder (`planning`, `architecture`, `standard`, `complex`) | Claude `claude-sonnet-5-5`, `effort=medium` | Sol medium | yes, Sonnet and Sol only |
+| Scoped bugfix Builder (`bugfix`) | Sol medium | Sonnet medium | yes, Sonnet and Sol only |
+| Mechanical (`mechanical`) | Codex `gpt-6.1-terra`, `reasoningEffort=low` | none | no |
+| Docs (`docs`) | Terra low | Claude `claude-haiku-5-5`, `effort=low` | no: candidate only, caller chooses |
 
-`omittedModels` shows the short list is incomplete; `search` can reveal more. Advertised is not tested: no run of any ID is recorded here.
+Provider-specific effort descriptors differ (`reasoningEffort` for Codex, `effort` for Claude); the router emits the exact `target.options` entry for the chosen provider. Sol is the Codex model for Coordinator work; Terra is its cheaper tier; Sonnet and Haiku are Claude tiers. These names carry no benchmark claim.
 
-## Routing by role (hypotheses, not measured)
+## Escalation and independence rules
 
-| Role | Selection principle | Constraint |
+- No automatic expensive escalation: no Opus, Astra, Fable, no `high`, `xhigh`, `max`, `ultra`, `ultrathink`, `ultracode`, no `fastMode` or `serviceTier`. The policy validator rejects such a policy. Task complexity, architecture or security risk, and verification cost can only mark work as heavy (relevant while usage is restricted); they never upgrade the model or effort, and never waive a safeguard. A human may choose to escalate outside this router.
+- Only Sonnet and Sol implementation switching is pre-authorized, and only through the checked attempt protocol (routing.md). Other missing targets stop, or surface an approved candidate that the caller must choose.
+- Final review must come from a different underlying provider than each code-author provider. Same-provider review, including a different Codex model reviewing Codex work, is not independent and does not satisfy final readiness. Mixed authorship needs both coverages. Reviewers are read-only, fresh per exact head, and never authors.
+
+## Usage and quota
+
+Telemetry is optional, caller-supplied, current and attributable (provider, project, window, source reference, timestamp). The installed T3 schema exposes no quota-reading tool. Claude Code `/usage` and `/status` and Codex `/status` are interactive displays and may be cached; they do not authorize scraping private APIs. Therefore nothing is assumed:
+
+| Worst known remaining | Level | Effect |
 | --- | --- | --- |
-| Coordinator | User-configured preference or a choice supported by measured evidence; exercise judgment on protections and delivery | Alone merges. Not the author of the head it reviews |
-| Implementer | Select a capable advertised model for bounded work with explicit file ownership; treat unmeasured cost and quality comparisons as hypotheses | One writer per branch and directory |
-| Reviewer | A different provider instance or model from the author when advertised; read-only; fresh task per head | Independent of the author, not merely a different prompt. Same-model review is recorded as weaker independence |
-| Mechanical edits | Avoid delegation or use a user-preferred capable model | Must have a runnable check |
+| above 35 | normal | none |
+| 15 to 35 inclusive | conserve | advisory; routing proceeds |
+| below 15 | restrict | heavy new work is not routed to that provider |
+| 0 | exhausted | provider is not routed to |
+| no trusted current reading | unknown | stays unknown; never triggers a switch |
 
-Raise effort before changing models when a task fails for reasoning depth; change model when it fails for capability or tool use. Record effort with the model ID in every handoff so results are attributable.
+Both session and weekly windows are tracked; the worst known value wins; a single known window is flagged as partial knowledge. User estimates, cached displays, unsupported readings, stale or other-project readings and ambiguous duplicates are recorded as untrusted and count as unknown. The roughly 20% Claude reserve is advisory (`enforced` must be false in the policy) because no mechanism can enforce it. Tokens, elapsed time and attempt counts are separate attributable metrics, not percentages, dollars or proof of savings.
 
 ## Coordinator-led control plane
 
-One coordinator thread owns plan, delegation, evidence collection, gate, and merge. T3 already provides the scheduler primitives: `delegate_task` async with completion wake, `task_cancel`, PR watch/wake. See docs/adr/0002-control-plane.md for the decision. Do not build a second scheduler, queue, polling loop or merge daemon in this repository; do not poll (`task_status`, sleep). Child tasks hand back a typed handoff (docs/orchestration/handoff.md) and never merge or spawn agents.
+One coordinator thread owns plan, delegation, evidence collection, gate and merge. T3 provides the scheduler primitives (async `delegate_task`, `task_cancel`, PR watch); see docs/adr/0002-control-plane.md and docs/adr/0003-dynamic-routing.md. The router is a pure validator: it does not execute, poll, schedule, collect credentials or merge. Child tasks return a typed handoff (handoff.md) and never merge or spawn agents. Reuse of an isolated checkout requires a supported native mechanism; if T3 cannot reuse it without injecting the full prior history, report that limit rather than inventing support.
 
-## Deferred benchmark protocol
+## Provenance and limits
 
-Not executed. Run only when a decision depends on it and the user authorizes the usage budget.
-
-1. Fix a task set of 5 or more small repository tasks with known acceptance checks (e.g. calculator and statistics fixes). Record repo SHA per task.
-2. Candidate arms: model ID plus effort, taken from the live advertisement on the run day. Same prompt, same tools, fresh worktree per run, 3 or more runs per arm to expose variance.
-3. Blind scoring: a separate grader sees diffs without model names. Metrics: acceptance checks passed, review findings, test failures after merge of the diff, wall-clock time, and usage drawn from the subscription window (not dollars).
-4. Report per completed task (including retries), with pass counts and spread, not a single mean. A cheaper arm that needs retries counts retry cost.
-5. Save raw results and exact commands under docs/evidence.md or a dated file. Conclusions expire when IDs change; rerun after a model change.
-6. Cross-provider equivalence stays an untested contract until step 5 produces data.
-
-## Limits
-
-- Observed advertisement may change within a day. Re-call before the first delegation of each thread.
-- No capability ranking is asserted here; names such as Sol, Astra, Terra, Luna carry no verified meaning.
-- Provider settings beyond what `target.options` exposes were not tested.
+- Prior local policy and audit (2026-11-08 user routing override, Coordinator Sol medium, Astra for implementation) are preserved byte-identical by the Coordinator under `docs/readiness/dynamic-routing/` (`model-routing-before.md`, `model-routing-audit-before.json`) outside this branch. They are dated evidence only, not active defaults.
+- Capability facts are a dated observation (2026-11-09): codex Sol/Terra and claudeAgent Sonnet/Haiku available with child and cross-provider tasks; Codex CLI 0.167.0, Claude Code 2.1.319. Source of truth is always the live schema; official docs are linked in routing.md.
+- Quality and cost comparisons between models remain unmeasured hypotheses. The deferred benchmark protocol is not part of this change; run it only when a decision depends on it and the user authorizes the usage budget.
+- Advertised is not tested: no live run of any ID is claimed here beyond what the Coordinator records separately.

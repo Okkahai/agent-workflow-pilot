@@ -77,7 +77,7 @@ save actual CLI JSON outputs during its live demonstration.
 ## PC2 same-delivery lifecycle contract
 
 PC1 and PC2 are approved; PC2 depends on freshly observed delivered PC1.
-All gap rows and PR14 remain unapproved. The approved PC2 plan is
+At the PC2 milestone, gap rows and PR14 were unapproved. Current exceptions are separately authorized M1 gap, A1 and bounded A2; current authority comes from controller approval evidence, not this historical paragraph. PR14 remains excluded. The approved PC2 plan is
 `../plans/program-coordinator-pc2.md`. No readiness state is bundled here.
 
 The single trusted Coordinator owns all calls and local files. The new
@@ -136,3 +136,11 @@ remote exactly-once mechanism. Never feed worker-authored claims as verified
 observations. Single writer required. Crash after intent persistence requires
 native reconciliation, never blind retry; remote crash behavior is untested.
 CI and independent review remain separate controller responsibilities.
+
+## A1 project identity (draft)
+
+Project-scoped use of these commands (`--mode project --expect FILE`) is described in [identity.md](identity.md). Default `--mode legacy` is unchanged and not multi-project safe.
+
+## A2 milestone identifiers
+
+A2 (draft, unmerged) replaces the literal M1–M5 check in `program.validate` with `program.MILESTONE`: an ASCII letter, then letters/digits with internal `-` or `_`, ending alphanumeric, 1–64 characters, matched in full (`[A-Za-z](?:[A-Za-z0-9_-]{0,62}[A-Za-z0-9])?`). Case and bytes are preserved exactly (`M1` and `m1` differ); empty, non-string, whitespace, control, path, Unicode and other punctuation values fail `validate`. Milestones are inert labels shared freely across tasks and never authorize dispatch, approval or merge. Fingerprint code and serialization are unchanged: unchanged plans keep their v1 hashes, while any milestone edit changes the plan hash and so rejects old observations, bindings and A1 approval expectations. Not included: roadmap schema v2, configurable roadmap/spec bases, checkout rebind, registry.

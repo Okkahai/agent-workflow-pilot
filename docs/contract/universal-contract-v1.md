@@ -1,6 +1,6 @@
 # Universal Harness Contract — proposed v1.0
 
-Status: REVIEWABLE PROPOSAL, 2026-11-09, against main `e7791174e3a5ed46f4834d8d0dc5b076f7e19d00`. This specification grants no implementation, adoption, dispatch, policy migration or merge authority. It is an on-demand reference, not an automatically loaded instruction file. Existing formats remain unchanged. Audit and migration: `docs/plans/universal-modernization/migration-proposal.md`. Proposed consolidated register: `docs/readiness/routing-gap-register.md`.
+Status: REVIEWABLE PROPOSAL, published with the A1 draft PR 2026-11-09, against main `e7791174e3a5ed46f4834d8d0dc5b076f7e19d00`. Only UC-03/UC-04 (partially), UC-06 and UC-11 have a draft implementation: [`docs/program/identity.md`](../program/identity.md); everything else is proposed. This specification grants no implementation, adoption, dispatch, policy migration or merge authority. It is an on-demand reference, not an automatically loaded instruction file. Existing formats remain unchanged. Audit and migration: `docs/plans/universal-modernization/migration-proposal.md`. Consolidated register: `docs/readiness/routing-gap-register.md`.
 
 ## Invariants and acceptance obligations
 
@@ -33,4 +33,4 @@ Asset rollback and execution-state recovery are separate. If reverted code canno
 
 ## Current proof boundary
 
-PC1–PC3, M1 and bounded dynamic routing are delivered. Program-level project isolation, arbitrary milestones, shared external invocation and two-project whole-workflow adoption remain absent or unverified. Windows cross-provider review does not prove Ubuntu isolation. Future implementation stages and all original M2–M5 gaps require authorization.
+PC1-PC3, M1, dynamic routing and A1 are delivered. A1 merged in PR21 at b013c82 with successful postmerge CI. Bounded A2 milestone identifiers are implemented in an unmerged Draft PR; no Ready or merge authorization exists. Registration, relocation, full project isolation, external invocation and two-project adoption remain absent or unverified. Windows reviews do not prove Ubuntu isolation. A1 P3 limits remain open. A3/B/C/D/E and original M2-M5 gap implementations remain unapproved. Earlier proposal statements retain their dated source scope.

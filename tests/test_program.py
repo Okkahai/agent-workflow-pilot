@@ -103,3 +103,78 @@ def test_truthful_unmerged_observation_does_not_block_independent_task():
     e['state'] = 'delivered'
     with pytest.raises(ValueError):
         p.select(a, ROOT, obs)
+
+
+# ---- A2: arbitrary milestone identifiers --------------------------------------------------
+# Captured by running b013c82 (pre-A2) on its roadmap + specs; serialization must not move.
+BASELINE_ROADMAP_FINGERPRINT = '3f15c9e5eef65e0fb95064f2be4c5576da2f6ef0856cb6d02eb1c9c1a32da069'
+BASELINE_REVISION = 'a1-approved-2026-11-09'
+
+
+def with_milestone(value, index=0):
+    a = plan(); a['tasks'][index]['milestone'] = value
+    return a
+
+
+def test_baseline_fingerprint_unchanged_for_unchanged_inputs():
+    a = plan()
+    a['tasks'] = [t for t in a['tasks'] if t['id'] != 'a2']
+    a['revision'] = BASELINE_REVISION
+    assert p.fingerprint(a, ROOT) == BASELINE_ROADMAP_FINGERPRINT
+
+
+@pytest.mark.parametrize('name', ['M1', 'M5', 'alpha', 'phase-2', 'phase_2', 'Q3-launch', 'a', 'M1x', 'X' * 64,
+                                  'a-b_c-d'])
+def test_valid_milestone_names(name):
+    a = with_milestone(name)
+    assert p.validate(a, ROOT) is a
+
+
+def test_mixed_and_shared_milestones_select_unchanged():
+    a = plan()
+    for t, name in zip(a['tasks'], ['alpha', 'M2', 'alpha', 'beta-1', 'M1'] * 6):
+        t['milestone'] = name
+    assert p.select(a, ROOT)['task'] == 'pc1'
+    assert not p.select(a, ROOT)['merge_authorized']
+
+
+@pytest.mark.parametrize('name', ['', ' ', 'M1 ', ' M1', 'M 1', 'M1\n', '\tM1', 'M1\x00', 'M\x1b1', '1M', '-M1', '_M1',
+                                  'M1-', 'M1_', 'M1.2', 'M1/x', '../M1', 'a\b', 'M1:x', 'M$1', 'MÉ', 'Μ1', 'M１',
+                                  'M1‮', 'X' * 65, 'X' * 1000, None, 1, 1.0, True, [], ['M1'], {}, b'M1'])
+def test_invalid_milestone_names_rejected_by_validate(name):
+    with pytest.raises(ValueError):
+        p.validate(with_milestone(name), ROOT)
+    with pytest.raises(ValueError):
+        p.select(with_milestone(name), ROOT)
+
+
+def test_case_and_bytes_preserved():
+    assert p.fingerprint(with_milestone('m1'), ROOT) != p.fingerprint(plan(), ROOT)
+    assert p.fingerprint(with_milestone('M1'), ROOT) == p.fingerprint(plan(), ROOT)
+
+
+def test_changed_milestone_invalidates_old_observations_and_bindings(tmp_path):
+    a = plan()
+    obs = dict(plan_hash=p.fingerprint(a, ROOT), tasks={})
+    assert p.select(a, ROOT, obs)['task'] == 'pc1'
+    renamed = with_milestone('alpha')
+    with pytest.raises(ValueError):
+        p.select(renamed, ROOT, obs)
+    delivery = tmp_path / 'delivery.json'
+    binding = tmp_path / 'binding.json'
+    st = c.apply(c.new('pc1', ['acc']), 'intent', 'dispatch', client_request_id='i1', completed_dependencies=[])
+    c.save(delivery, st)
+    p.record(binding, a, ROOT, 'pc1', delivery)
+    assert p.select(a, ROOT, active=p.load(binding))['tasks']['pc1']['state'] == 'blocked'  # dispatching
+    with pytest.raises(ValueError):
+        p.select(renamed, ROOT, active=p.load(binding))
+
+
+def test_milestone_never_authorizes():
+    a = plan()
+    for t in a['tasks']:
+        t['milestone'] = 'approved-merge'
+    res = p.select(a, ROOT)
+    assert res['task'] == 'pc1' and not res['merge_authorized']
+    assert res['tasks']['pr14']['state'] == 'blocked'
+    assert res['tasks']['a2']['state'] == 'blocked'  # depends on a1, not freshly observed delivered

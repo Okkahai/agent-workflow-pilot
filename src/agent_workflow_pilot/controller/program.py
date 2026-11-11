@@ -8,7 +8,12 @@ import sys
 
 from agent_workflow_pilot import graph
 from agent_workflow_pilot.handoff import parse, SHA
-from agent_workflow_pilot.controller import checkpoint
+from agent_workflow_pilot.controller import checkpoint, identity
+
+
+# A2: milestones are inert labels. Case/bytes preserved exactly (M1 != m1); ASCII only,
+# letter-led, internal '-'/'_' only, 1-64 chars. fullmatch (never `$`) so a trailing newline fails.
+MILESTONE = re.compile(r'[A-Za-z](?:[A-Za-z0-9_-]{0,62}[A-Za-z0-9])?')
 
 
 def load(path):
@@ -25,7 +30,7 @@ def validate(plan, root):
     for task in plan['tasks']:
         graph._fields(task, ('id', 'title', 'milestone', 'kind', 'approved', 'decision',
                             'priority', 'depends_on', 'owns', 'spec'), 'task')
-        if task['kind'] not in ('code', 'artifact') or task['milestone'] not in ('M1','M2','M3','M4','M5'):
+        if task['kind'] not in ('code', 'artifact') or not (isinstance(task['milestone'], str) and MILESTONE.fullmatch(task['milestone'])):
             raise ValueError('invalid kind/milestone')
         if type(task['approved']) is not bool or type(task['decision']) is not bool or type(task['priority']) is not int:
             raise ValueError('invalid authorization/priority')
@@ -148,16 +153,21 @@ def main(argv=None):
     p.add_argument('--checkpoint')
     p.add_argument('--task')
     p.add_argument('--delivery')
+    identity.add_arguments(p)
     a = p.parse_args(argv)
     try:
         plan = load(a.plan); root = Path(a.plan).parent
+        expect, proof = identity.enter(a.mode, a.expect, plan, a.plan, a.checkpoint,
+                                       a.task if a.command=='record' and a.checkpoint else None)
         obs = load(a.observations) if a.observations else None
         if a.command=='record':
             if not all((a.checkpoint,a.task,a.delivery)): raise ValueError('record requires checkpoint/task/delivery')
             result = record(a.checkpoint,plan,root,a.task,a.delivery,obs)
+            if expect is not None: identity.bind(expect,plan,a.plan,a.checkpoint)
         else:
             if a.command=='resume' and not a.checkpoint: raise ValueError('resume requires checkpoint')
             result = select(plan,root,obs,load(a.checkpoint) if a.checkpoint else None)
+            if expect is not None and result['task']: identity.check_task(expect,plan,a.plan,result['task'])
         print(json.dumps(result,sort_keys=True,indent=2))
         return 0
     except (ValueError,OSError,TypeError,KeyError) as error:

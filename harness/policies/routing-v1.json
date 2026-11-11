@@ -1,0 +1,46 @@
+{
+  "schema": "agent-workflow-pilot.routing-policy/1",
+  "version": 1,
+  "providers": {
+    "codex": {"underlying": "openai", "effort_option": "reasoningEffort"},
+    "claudeAgent": {"underlying": "anthropic", "effort_option": "effort"}
+  },
+  "targets": {
+    "sol": {"provider": "codex", "model": "gpt-6.1-sol", "effort": "medium"},
+    "terra": {"provider": "codex", "model": "gpt-6.1-terra", "effort": "low"},
+    "sonnet": {"provider": "claudeAgent", "model": "claude-sonnet-5-5", "effort": "medium"},
+    "haiku": {"provider": "claudeAgent", "model": "claude-haiku-5-5", "effort": "low"}
+  },
+  "roles": {
+    "program_delivery": {"primary": "sol", "alternates": [], "auto_switch": []},
+    "planning_builder": {"primary": "sonnet", "alternates": ["sol"], "auto_switch": ["sol"]},
+    "scoped_bugfix": {"primary": "sol", "alternates": ["sonnet"], "auto_switch": ["sonnet"]},
+    "mechanical": {"primary": "terra", "alternates": [], "auto_switch": []},
+    "docs": {"primary": "terra", "alternates": ["haiku"], "auto_switch": []}
+  },
+  "categories": {
+    "program": "program_delivery",
+    "delivery": "program_delivery",
+    "planning": "planning_builder",
+    "architecture": "planning_builder",
+    "standard": "planning_builder",
+    "complex": "planning_builder",
+    "bugfix": "scoped_bugfix",
+    "mechanical": "mechanical",
+    "docs": "docs"
+  },
+  "capabilities": ["child_tasks", "cross_provider"],
+  "forbidden": {
+    "efforts": ["high", "xhigh", "max", "ultra", "ultrathink", "ultracode"],
+    "model_substrings": ["opus", "astra", "fable"],
+    "options": ["fastMode", "serviceTier"]
+  },
+  "usage": {
+    "normal_above": 35,
+    "conserve_min": 15,
+    "fresh_seconds": 900,
+    "reserve": {"claudeAgent": {"percent": 20, "enforced": false}}
+  },
+  "snapshot_max_age_seconds": 3600,
+  "max_attempts": 3
+}

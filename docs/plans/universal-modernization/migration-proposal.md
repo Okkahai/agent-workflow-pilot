@@ -1,8 +1,8 @@
 # Universal architecture audit and migration proposal v1
 
-Status: PROPOSED, 2026-11-09. Research/planning is authorized; no implementation, target adoption, PR or merge is authorized. Baseline main `e7791174e3a5ed46f4834d8d0dc5b076f7e19d00`. This corrected synthesis supersedes recommendations in the raw Sonnet draft where they conflict; raw analysis and independent Sol critique remain evidence.
+Status: DATED PROPOSAL (2026-11-09), superseding conflicting raw audit recommendations. Current implementation status (2026-11-10): A1 delivered in PR21 at b013c82 with successful CI; A2 alone authorized through Draft readiness. A3/B/C/D/E, adoption and A2 merge remain unapproved. Historical source baseline e7791174; no research prose grants execution authority.
 
-Deliverables: [proposed Universal Contract](../../contract/universal-contract-v1.md), proposed consolidated replacement at `docs/readiness/routing-gap-register.md`, this audit/staging proposal. Nothing is auto-loaded through AGENTS/CLAUDE or distributed to targets. No roadmap approvals changed.
+Deliverables: [proposed Universal Contract](../../contract/universal-contract-v1.md), consolidated register at `docs/readiness/routing-gap-register.md` (published), this audit/staging proposal. Nothing is auto-loaded through AGENTS/CLAUDE or distributed to targets. No roadmap approvals changed.
 
 ## Verified state and evidence limits
 
