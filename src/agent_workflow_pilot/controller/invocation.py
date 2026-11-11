@@ -35,7 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from agent_workflow_pilot import graph, handoff, task_context
-from agent_workflow_pilot.controller import checkpoint, identity, program
+from agent_workflow_pilot.controller import checkpoint, identity, lifecycle, program
 
 OUT_LIMIT = handoff.MAX_BYTES
 ERR_LIMIT = 16 * 1024
@@ -583,21 +583,19 @@ def _attach(r, c):
 
 
 def _reconcile(r, c):
-    _need(isinstance(r, dict) and r.get('slot') in ('held', 'retired'))
-    evidence = c['args']['observations']['tasks'].get(c['task'])
-    if r['slot'] == 'retired':      # delivered: next selection (or stop) from the same observations
-        _keys(r, {'action', 'task', 'slot', 'merge_authorized'})
-        _need(isinstance(evidence, dict) and evidence.get('state') == 'delivered')
-        nxt = program.select(c['doc'], Path(c['plan_path']).parent, copy.deepcopy(c['args']['observations']),
-                             scope=c['args']['scope'])['task']
-        _need(r['task'] == nxt and r['action'] == ('continue' if nxt else 'stop'))
-    elif 'state' in r:
-        _keys(r, {'action', 'state', 'slot', 'reason', 'merge_authorized'})
-        _need(isinstance(evidence, dict) and r['state'] == evidence.get('state') and _str(r['reason']))
-        _need(r['action'] == ('awaiting_authorization' if r['state'] == 'report_ready' else 'blocked'))
-    else:
-        _keys(r, {'action', 'slot', 'reason', 'merge_authorized'})
-        _need(r['action'] == 'blocked' and r['slot'] == 'held' and _str(r['reason']))
+    """The result must EQUAL the canonical lifecycle.reconcile decision recomputed here, in-process, from the
+    controller's own request, binding/checkpoint, native input, observations and scope (never child-reported
+    data): native status/children, retry budget, host evidence, head, identity and successor all come from the
+    one existing state machine. It is read-only (no write) and re-verifies the identity proof for the operational
+    root/plan/binding against the freshly supplied expectation. The Git observation is the controller's own
+    approved checkout/common dir/origin (the child already observed real Git under the approved git directory);
+    importing the controller's PATH-dependent git here is deliberately avoided."""
+    a, exp, paths = c['args'], c['exp'], c['paths']
+    seen = dict(root=str(paths['checkout']), common_dir=str(paths['common_dir']), origin=exp['repository'])
+    proof = identity.verify(exp, c['doc'], c['plan_path'], c['binding'], lambda _path: dict(seen))
+    _need(r == lifecycle.reconcile(c['doc'], Path(c['plan_path']).parent, str(c['binding']),
+                                   copy.deepcopy(a['observations']), list(a['scope']), copy.deepcopy(a['native']),
+                                   a['head'], project=proof))
 
 
 _RESULTS = {'program': _program, 'identity': _identity, 'task_context': _context, 'lifecycle.prepare': _prepare,

@@ -1109,3 +1109,113 @@ def test_pipe_setup_failure_fails_closed_and_reaps(swarm, monkeypatch):
     assert problem == 'setup_error' and out == b''             # invoke() maps any problem to a process failure
     child = made[0]                                             # made[1:] are the taskkill helpers
     assert child.poll() is not None and child.stdout.closed and child.stderr.closed
+
+
+# ----------------------------------------------------------------------------- B1-P2-01 supplemental: reconcile = canonical
+DONE = dict(REPORT, state='delivered', draft=False, merged=True, merge_commit='c' * 40, ancestor_verified=True)
+NATIVE = dict(task='n-task', thread='n-thread', status='completed', children_terminal=True, ref='native-ref-1')
+BOTH = ['t1', 't2']
+
+
+def forged(**kw):
+    base = dict(action='continue', task='t2', slot='retired', merge_authorized=False)
+    return lambda r: base | kw
+
+
+def attached(world):
+    world.prepare()
+    world.run('lifecycle.attach')
+
+
+def stall(world, **over):
+    """Persisted checkpoint at/over its retry budget while blocked (written directly, test setup only)."""
+    path = world.state / 'd.json'
+    state = checkpoint.load(path)
+    state.update(over)
+    checkpoint.save(path, state)
+
+
+@pytest.mark.parametrize('native', [
+    dict(status=s) for s in ('running', 'failed', 'cancelled', 'interrupted', 'unknown')
+] + [dict(children_terminal=False)], ids=lambda n: str(n))
+@pytest.mark.parametrize('scope,forge', [(BOTH, forged()), (['t1'], forged(action='stop', task=None))],
+                         ids=['continue', 'stop'])
+def test_reconcile_false_retirement_when_native_not_complete(world, monkeypatch, native, scope, forge):
+    attached(world)
+    args = dict(observations=world.obs(t1=DONE), scope=scope, native=NATIVE | native)
+    assert world.run('lifecycle.reconcile', **args)['result']['action'] == 'blocked'   # canonical: held
+    tamper(monkeypatch, forge)
+    world.fail('lifecycle.reconcile', 'output', **args)
+
+
+def test_reconcile_false_retirement_when_retry_budget_exhausted(world, monkeypatch):
+    attached(world)
+    stall(world, lifecycle='blocked', blocker='review failed', retries=2)
+    args = dict(observations=world.obs(t1=DONE), scope=BOTH)
+    assert world.run('lifecycle.reconcile', **args)['result']['reason'] == 'correction budget exhausted'
+    tamper(monkeypatch, forged())
+    world.fail('lifecycle.reconcile', 'output', **args)
+
+
+@pytest.mark.parametrize('obs', [{}, dict(t1=DONE | dict(children_terminal=False))], ids=['missing', 'host_children'])
+def test_reconcile_false_retirement_without_terminal_host_evidence(world, monkeypatch, obs):
+    attached(world)
+    args = dict(observations=world.obs(**obs), scope=BOTH)
+    try:
+        genuine = world.run('lifecycle.reconcile', **args)['result']
+    except v.InvocationError:
+        return                               # canonical rejects outright: the child has no result to forge
+    assert genuine['slot'] == 'held'
+    tamper(monkeypatch, forged())
+    world.fail('lifecycle.reconcile', 'output', **args)
+
+
+@pytest.mark.parametrize('over', [dict(head='b' * 40), dict(native=NATIVE | dict(task='x-task')),
+                                  dict(native=NATIVE | dict(thread='x-thread'))], ids=['head', 'task', 'thread'])
+def test_reconcile_false_retirement_for_stale_head_or_wrong_native(world, over):
+    attached(world)
+    args = dict(observations=world.obs(t1=DONE)) | over
+    world.fail('lifecycle.reconcile', 'operation', **args)       # canonical refuses: no result exists to forge
+
+
+def test_reconcile_wrong_successor_and_persisted_block_with_delivered_host(world, monkeypatch):
+    attached(world)
+    args = dict(observations=world.obs(t1=DONE), scope=BOTH)
+    for name, mutate in [('wrong_successor', forged(task='t1')), ('stop', forged(action='stop', task=None)),
+                         ('extra', lambda r: forged()(r) | dict(state='delivered', reason='x'))]:
+        tamper(monkeypatch, mutate)
+        with pytest.raises(v.InvocationError) as e:
+            world.run('lifecycle.reconcile', **args)
+        assert e.value.kind == 'output', name
+        monkeypatch.undo()
+
+
+@pytest.mark.parametrize('forge', [
+    lambda r: dict(action='blocked', slot='held', reason='native work not successfully terminal', merge_authorized=False),
+    lambda r: dict(action='awaiting_authorization', state='report_ready', slot='held', reason='merge boundary; '
+                   'report is not delivery', merge_authorized=False),
+    lambda r: dict(action='blocked', state='eligible', slot='held', reason='merge boundary; report is not delivery',
+                   merge_authorized=False)], ids=['blocked', 'awaiting', 'state_blocked'])
+def test_reconcile_false_hold_when_canonical_retired(world, monkeypatch, forge):
+    attached(world)
+    args = dict(observations=world.obs(t1=DONE), scope=BOTH)
+    assert world.run('lifecycle.reconcile', **args)['result']['slot'] == 'retired'
+    tamper(monkeypatch, forge)
+    world.fail('lifecycle.reconcile', 'output', **args)
+
+
+@pytest.mark.parametrize('state,action', [('report_ready', 'awaiting_authorization'), ('blocked', 'blocked')])
+def test_reconcile_canonical_holds_pass_unchanged(world, state, action):
+    attached(world)
+    r = world.run('lifecycle.reconcile', observations=world.obs(t1=REPORT | dict(state=state)))
+    assert r['result']['action'] == action and r['result']['slot'] == 'held'
+    assert r['result']['merge_authorized'] is False and r['state_changes'] == []
+    assert r['authorizes'] is False and r['dispatch'] is False and r['merge_authorized'] is False
+
+
+def test_reconcile_canonical_retirement_stop_and_continue_unchanged(world):
+    attached(world)
+    c = world.run('lifecycle.reconcile', observations=world.obs(t1=DONE), scope=BOTH)['result']
+    s = world.run('lifecycle.reconcile', observations=world.obs(t1=DONE), scope=['t1'])['result']
+    assert c == dict(action='continue', task='t2', slot='retired', merge_authorized=False)
+    assert s == dict(action='stop', task=None, slot='retired', merge_authorized=False)
